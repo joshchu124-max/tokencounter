@@ -268,6 +268,21 @@ class App:
             ctypes.wintypes.LPARAM,
         )
 
+        # WNDCLASSW is not in ctypes.wintypes — define it here
+        class WNDCLASSW(ctypes.Structure):
+            _fields_ = [
+                ("style", ctypes.c_uint),
+                ("lpfnWndProc", WNDPROC),
+                ("cbClsExtra", ctypes.c_int),
+                ("cbWndExtra", ctypes.c_int),
+                ("hInstance", ctypes.c_void_p),
+                ("hIcon", ctypes.c_void_p),
+                ("hCursor", ctypes.c_void_p),
+                ("hbrBackground", ctypes.c_void_p),
+                ("lpszMenuName", ctypes.c_wchar_p),
+                ("lpszClassName", ctypes.c_wchar_p),
+            ]
+
         def wnd_proc(hwnd, msg, wparam, lparam):
             if msg == WM_APP_RESULT_READY:
                 self._on_result_ready()
@@ -282,7 +297,7 @@ class App:
         self._wnd_proc = WNDPROC(wnd_proc)
 
         class_name = "TokenCounterMsgWindow"
-        wc = ctypes.wintypes.WNDCLASSW()
+        wc = WNDCLASSW()
         wc.lpfnWndProc = self._wnd_proc
         wc.lpszClassName = class_name
         wc.hInstance = ctypes.windll.kernel32.GetModuleHandleW(None)
