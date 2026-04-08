@@ -151,6 +151,9 @@ class HookManager:
             logger.error("Failed to install mouse hook")
 
     def _handle_mouse_event(self, wParam: int, lParam: int) -> None:
+        if wParam not in (WM_LBUTTONDOWN, WM_LBUTTONUP):
+            return
+
         info = ctypes.cast(lParam, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
 
         if wParam == WM_LBUTTONDOWN:
