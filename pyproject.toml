@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "tokencounter"
+version = "0.1.0"
+description = "Lightweight Windows desktop tool for local token counting"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "pywin32>=306",
+    "tiktoken>=0.7.0",
+    "comtypes>=1.4.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pyinstaller>=6.0",
+]
+
+[project.gui-scripts]
+tokencounter = "tokencounter.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
