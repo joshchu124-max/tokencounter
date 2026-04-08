@@ -260,13 +260,19 @@ class App:
 
     def _create_message_window(self) -> int:
         """Create a message-only window for receiving PostMessage from worker."""
+        LRESULT = ctypes.wintypes.LPARAM  # LONG_PTR — pointer-sized
         WNDPROC = ctypes.WINFUNCTYPE(
-            ctypes.c_long,
+            LRESULT,
             ctypes.wintypes.HWND,
             ctypes.c_uint,
             ctypes.wintypes.WPARAM,
             ctypes.wintypes.LPARAM,
         )
+        ctypes.windll.user32.DefWindowProcW.argtypes = [
+            ctypes.wintypes.HWND, ctypes.c_uint,
+            ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM,
+        ]
+        ctypes.windll.user32.DefWindowProcW.restype = LRESULT
 
         # WNDCLASSW is not in ctypes.wintypes — define it here
         class WNDCLASSW(ctypes.Structure):

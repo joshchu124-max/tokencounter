@@ -33,13 +33,33 @@ from tokencounter.constants import (
 
 logger = logging.getLogger("tokencounter")
 
+# LRESULT is LONG_PTR (8 bytes on 64-bit Windows).
+# Using c_long (4 bytes) here would leave the upper 4 bytes of the return
+# register as garbage, which Windows may interpret as non-zero, causing it
+# to swallow mouse/keyboard events and freeze the input device.
+LRESULT = ctypes.wintypes.LPARAM  # LONG_PTR — pointer-sized signed int
+
 # ctypes callback type for low-level hooks
 HOOKPROC = ctypes.WINFUNCTYPE(
-    ctypes.c_long,     # return: LRESULT
-    ctypes.c_int,      # nCode
+    LRESULT,                    # return: LRESULT (must be pointer-sized)
+    ctypes.c_int,               # nCode
     ctypes.wintypes.WPARAM,
     ctypes.wintypes.LPARAM,
 )
+
+# Declare argtypes/restype for hook-related Win32 APIs so that ctypes
+# marshals pointer-sized handles and return values correctly on 64-bit.
+_user32 = ctypes.windll.user32
+_user32.SetWindowsHookExW.argtypes = [
+    ctypes.c_int, HOOKPROC, ctypes.wintypes.HINSTANCE, ctypes.wintypes.DWORD,
+]
+_user32.SetWindowsHookExW.restype = LRESULT  # HHOOK (pointer-sized handle)
+_user32.UnhookWindowsHookEx.argtypes = [LRESULT]
+_user32.UnhookWindowsHookEx.restype = ctypes.wintypes.BOOL
+_user32.CallNextHookEx.argtypes = [
+    LRESULT, ctypes.c_int, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM,
+]
+_user32.CallNextHookEx.restype = LRESULT
 
 
 class MSLLHOOKSTRUCT(ctypes.Structure):

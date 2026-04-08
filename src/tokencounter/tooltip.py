@@ -157,8 +157,9 @@ class TooltipWindow:
     # -- window creation -----------------------------------------------------
 
     def _create_window(self) -> int:
+        LRESULT = ctypes.wintypes.LPARAM  # LONG_PTR — pointer-sized
         WNDPROC = ctypes.WINFUNCTYPE(
-            ctypes.c_long,
+            LRESULT,
             ctypes.wintypes.HWND,
             ctypes.c_uint,
             ctypes.wintypes.WPARAM,
