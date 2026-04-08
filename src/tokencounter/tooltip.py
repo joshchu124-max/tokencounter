@@ -222,6 +222,23 @@ class TooltipWindow:
 
         ex_style = WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_LAYERED
 
+        # Declare argtypes to ensure correct marshalling on 64-bit Windows
+        ctypes.windll.user32.CreateWindowExW.argtypes = [
+            ctypes.wintypes.DWORD,   # dwExStyle
+            ctypes.c_wchar_p,        # lpClassName
+            ctypes.c_wchar_p,        # lpWindowName
+            ctypes.wintypes.DWORD,   # dwStyle
+            ctypes.c_int,            # x
+            ctypes.c_int,            # y
+            ctypes.c_int,            # nWidth
+            ctypes.c_int,            # nHeight
+            ctypes.wintypes.HWND,    # hWndParent
+            ctypes.wintypes.HMENU,   # hMenu
+            ctypes.wintypes.HINSTANCE,  # hInstance
+            ctypes.c_void_p,         # lpParam
+        ]
+        ctypes.windll.user32.CreateWindowExW.restype = ctypes.wintypes.HWND
+
         hwnd = ctypes.windll.user32.CreateWindowExW(
             ex_style,
             class_name,

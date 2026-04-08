@@ -304,7 +304,27 @@ class App:
 
         ctypes.windll.user32.RegisterClassW(ctypes.byref(wc))
 
-        HWND_MESSAGE = -3
+        # HWND_MESSAGE = (HWND)(-3) — must use proper ctypes HWND cast
+        # because -3 as a raw Python int overflows on 64-bit pointer args
+        HWND_MESSAGE = ctypes.wintypes.HWND(-3)
+
+        # Declare argtypes so ctypes marshals all 12 arguments correctly
+        ctypes.windll.user32.CreateWindowExW.argtypes = [
+            ctypes.wintypes.DWORD,   # dwExStyle
+            ctypes.c_wchar_p,        # lpClassName
+            ctypes.c_wchar_p,        # lpWindowName
+            ctypes.wintypes.DWORD,   # dwStyle
+            ctypes.c_int,            # x
+            ctypes.c_int,            # y
+            ctypes.c_int,            # nWidth
+            ctypes.c_int,            # nHeight
+            ctypes.wintypes.HWND,    # hWndParent
+            ctypes.wintypes.HMENU,   # hMenu
+            ctypes.wintypes.HINSTANCE,  # hInstance
+            ctypes.c_void_p,         # lpParam
+        ]
+        ctypes.windll.user32.CreateWindowExW.restype = ctypes.wintypes.HWND
+
         hwnd = ctypes.windll.user32.CreateWindowExW(
             0,                  # dwExStyle
             class_name,         # lpClassName
