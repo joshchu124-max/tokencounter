@@ -134,10 +134,13 @@ class HookManager:
     def _install_mouse_hook(self) -> None:
         def mouse_proc(nCode: int, wParam: int, lParam: int) -> int:
             if nCode >= 0:
-                try:
-                    self._handle_mouse_event(wParam, lParam)
-                except Exception:
-                    logger.exception("Error in mouse hook callback")
+                # Only process button down/up — ignore WM_MOUSEMOVE etc.
+                # to avoid unnecessary ctypes.cast and GIL contention
+                if wParam in (WM_LBUTTONDOWN, WM_LBUTTONUP):
+                    try:
+                        self._handle_mouse_event(wParam, lParam)
+                    except Exception:
+                        logger.exception("Error in mouse hook callback")
             return ctypes.windll.user32.CallNextHookEx(0, nCode, wParam, lParam)
 
         self._mouse_proc_ref = HOOKPROC(mouse_proc)
