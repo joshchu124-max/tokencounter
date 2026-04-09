@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "tokencounter"
@@ -11,6 +11,7 @@ license = "AGPL-3.0-only"
 authors = [
     { name = "Josh Chu" },
 ]
+readme = "README.md"
 keywords = ["token", "counter", "tiktoken", "gpt", "tokenizer"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -27,6 +28,12 @@ dependencies = [
     "tiktoken>=0.7.0",
     "comtypes>=1.4.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/joshchu124-max/tokencounter"
+Repository = "https://github.com/joshchu124-max/tokencounter"
+Changelog = "https://github.com/joshchu124-max/tokencounter/blob/main/CHANGELOG.md"
+"Bug Tracker" = "https://github.com/joshchu124-max/tokencounter/issues"
 
 [project.optional-dependencies]
 dev = [

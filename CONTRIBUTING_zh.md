@@ -5,7 +5,7 @@
 ## 开发环境搭建
 
 ```bash
-git clone https://github.com/JoshChu/tokencounter.git
+git clone https://github.com/joshchu124-max/tokencounter.git
 cd tokencounter
 python -m venv .venv
 .venv\Scripts\activate
