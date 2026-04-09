@@ -10,39 +10,27 @@ from abc import ABC, abstractmethod
 import tiktoken
 
 
-# ---------------------------------------------------------------------------
-# Abstract base
-# ---------------------------------------------------------------------------
-
 class TokenizerProvider(ABC):
-    """Interface that every tokenizer must implement."""
-
     @property
     @abstractmethod
     def name(self) -> str:
-        """Human-readable display name, e.g. 'GPT-4o (o200k_base)'."""
+        pass
 
     @property
     @abstractmethod
     def encoding_name(self) -> str:
-        """Internal encoding identifier, e.g. 'o200k_base'."""
+        pass
 
     @abstractmethod
     def count_tokens(self, text: str) -> int:
-        """Return the number of tokens for *text*."""
+        pass
 
     @abstractmethod
     def encode(self, text: str) -> list[int]:
-        """Return the list of token IDs for *text*."""
+        pass
 
-
-# ---------------------------------------------------------------------------
-# tiktoken implementation
-# ---------------------------------------------------------------------------
 
 class TiktokenProvider(TokenizerProvider):
-    """Wraps a tiktoken encoding as a :class:`TokenizerProvider`."""
-
     def __init__(self, encoding_name: str, display_name: str) -> None:
         self._encoding_name = encoding_name
         self._display_name = display_name
@@ -63,21 +51,11 @@ class TiktokenProvider(TokenizerProvider):
         return self._enc.encode(text)
 
 
-# ---------------------------------------------------------------------------
-# Registry
-# ---------------------------------------------------------------------------
-
 class TokenizerRegistry:
-    """Manages available tokenizer providers and the currently active one."""
-
     def __init__(self) -> None:
         self._providers: dict[str, TokenizerProvider] = {}
         self._active_key: str | None = None
-
-        # Register built-in providers
         self._register_builtins()
-
-    # -- public API ----------------------------------------------------------
 
     @property
     def providers(self) -> dict[str, TokenizerProvider]:
@@ -100,10 +78,7 @@ class TokenizerRegistry:
     def register(self, provider: TokenizerProvider) -> None:
         self._providers[provider.encoding_name] = provider
 
-    # -- internals -----------------------------------------------------------
-
     def _register_builtins(self) -> None:
         self.register(TiktokenProvider("o200k_base", "GPT-4o (o200k_base)"))
         self.register(TiktokenProvider("cl100k_base", "GPT-4 (cl100k_base)"))
-        # Default to o200k_base (GPT-4o)
         self._active_key = "o200k_base"

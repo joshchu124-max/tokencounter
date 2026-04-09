@@ -1,10 +1,7 @@
-"""Module 1: Global hooks for selection awareness.
+"""Global double-press hotkey detection.
 
-Two trigger modes:
-- Auto-detect: Low-level mouse hook (WH_MOUSE_LL) detects mouse-up after drag.
-- Hotkey: Low-level keyboard hook (WH_KEYBOARD_LL) detects double-press of a key.
-
-Both modes run on the main thread which must pump messages.
+TokenCounter now uses explicit triggering only: double-press Ctrl to
+request a token calculation for the current selection.
 """
 
 from __future__ import annotations
@@ -12,22 +9,15 @@ from __future__ import annotations
 import ctypes
 import ctypes.wintypes
 import logging
-import math
-import threading
 import time
 from typing import Callable
 
 from tokencounter.config import Config
 from tokencounter.constants import (
-    DEBOUNCE_S,
     HOTKEY_DOUBLE_TAP_S,
-    MIN_DRAG_DISTANCE_PX,
     THROTTLE_INTERVAL_S,
     WH_KEYBOARD_LL,
-    WH_MOUSE_LL,
     WM_KEYUP,
-    WM_LBUTTONDOWN,
-    WM_LBUTTONUP,
     WM_SYSKEYUP,
 )
 
@@ -74,7 +64,6 @@ class MSLLHOOKSTRUCT(ctypes.Structure):
 
 
 class KBDLLHOOKSTRUCT(ctypes.Structure):
-    """Structure passed to WH_KEYBOARD_LL callback via lParam."""
     _fields_ = [
         ("vkCode", ctypes.wintypes.DWORD),
         ("scanCode", ctypes.wintypes.DWORD),
@@ -85,41 +74,16 @@ class KBDLLHOOKSTRUCT(ctypes.Structure):
 
 
 class HookManager:
-    """Manages global mouse and keyboard hooks for trigger detection.
-
-    Parameters
-    ----------
-    on_trigger : callable
-        Called with (mouse_x, mouse_y) when a valid trigger fires.
-    config : Config
-        Current configuration (trigger_mode, hotkey_vk).
-    """
+    """Manages the global keyboard hook for double-tap detection."""
 
     def __init__(self, on_trigger: Callable[[int, int], None], config: Config) -> None:
         self._on_trigger = on_trigger
-        self._mode = config.trigger_mode
         self._hotkey_vk = config.hotkey_vk
-
-        # Hook handles
-        self._mouse_hook: int = 0
         self._keyboard_hook: int = 0
-
-        # Keep references to prevent GC of ctypes callbacks
-        self._mouse_proc_ref: HOOKPROC | None = None
         self._keyboard_proc_ref: HOOKPROC | None = None
-
-        # Mouse hook state
-        self._press_pos: tuple[int, int] = (0, 0)
-        self._press_time: float = 0.0
-        self._debounce_timer: threading.Timer | None = None
-        self._last_trigger_time: float = 0.0
-        self._last_mouseup_pos: tuple[int, int] = (0, 0)
-
-        # Keyboard hook state (for double-tap detection)
         self._last_hotkey_up_time: float = 0.0
         self._other_key_pressed: bool = False
-
-    # -- public API ----------------------------------------------------------
+        self._last_trigger_time: float = 0.0
 
     def install(self) -> None:
         """Install the appropriate hooks based on current mode."""
@@ -234,6 +198,19 @@ class HookManager:
         )
         if not self._keyboard_hook:
             logger.error("Failed to install keyboard hook")
+        else:
+            logger.info("Hooks installed in 'hotkey' mode")
+
+    def uninstall(self) -> None:
+        if self._keyboard_hook:
+            ctypes.windll.user32.UnhookWindowsHookEx(self._keyboard_hook)
+            self._keyboard_hook = 0
+        logger.info("Hooks uninstalled")
+
+    def set_mode(self, mode: str) -> None:
+        if mode == "hotkey":
+            return
+        logger.info("Ignoring unsupported trigger mode %r; hotkey mode is always used", mode)
 
     def _handle_keyboard_event(self, wParam: int, lParam: int) -> None:
         info = ctypes.cast(lParam, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
@@ -246,16 +223,13 @@ class HookManager:
                     not self._other_key_pressed
                     and (now - self._last_hotkey_up_time) < HOTKEY_DOUBLE_TAP_S
                 ):
-                    # Double-tap detected!
-                    self._last_hotkey_up_time = 0.0  # Reset to avoid triple-tap
+                    self._last_hotkey_up_time = 0.0
                     self._other_key_pressed = False
 
-                    # Throttle check
                     if (now - self._last_trigger_time) < THROTTLE_INTERVAL_S:
                         return
                     self._last_trigger_time = now
 
-                    # Get current cursor position
                     pt = ctypes.wintypes.POINT()
                     ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
                     logger.debug("Hotkey trigger at (%d, %d)", pt.x, pt.y)
@@ -264,5 +238,4 @@ class HookManager:
                     self._last_hotkey_up_time = now
                     self._other_key_pressed = False
             else:
-                # Another key was involved — invalidate the double-tap sequence
                 self._other_key_pressed = True

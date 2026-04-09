@@ -6,18 +6,11 @@ import ctypes
 import ctypes.wintypes
 import logging
 import os
-import sys
-from pathlib import Path
 
 from tokencounter.constants import CONFIG_DIR, LOG_FILE
 
 
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-
 def setup_logging(debug: bool = False) -> logging.Logger:
-    """Configure a file logger for the application."""
     os.makedirs(CONFIG_DIR, exist_ok=True)
     logger = logging.getLogger("tokencounter")
     logger.setLevel(logging.DEBUG if debug else logging.INFO)
@@ -30,14 +23,9 @@ def setup_logging(debug: bool = False) -> logging.Logger:
     return logger
 
 
-# ---------------------------------------------------------------------------
-# DPI awareness
-# ---------------------------------------------------------------------------
-
 def set_dpi_aware() -> None:
-    """Enable Per-Monitor DPI awareness (Windows 8.1+)."""
     try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except (AttributeError, OSError):
         try:
             ctypes.windll.user32.SetProcessDPIAware()
@@ -45,52 +33,36 @@ def set_dpi_aware() -> None:
             pass
 
 
-# ---------------------------------------------------------------------------
-# Screen geometry helpers
-# ---------------------------------------------------------------------------
-
 def get_screen_rect() -> tuple[int, int, int, int]:
-    """Return (left, top, right, bottom) of the primary monitor work area."""
     try:
         rect = ctypes.wintypes.RECT()
-        ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0)  # SPI_GETWORKAREA
+        ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0)
         return (rect.left, rect.top, rect.right, rect.bottom)
     except (AttributeError, OSError):
-        # Fallback: assume 1920x1080
         return (0, 0, 1920, 1080)
 
 
 def clamp_tooltip_position(
     x: int, y: int, width: int, height: int, offset_x: int, offset_y: int
 ) -> tuple[int, int]:
-    """Compute tooltip position near (x, y) without going off-screen."""
     left, top, right, bottom = get_screen_rect()
 
-    # Default: right-down of cursor
     tx = x + offset_x
     ty = y + offset_y
 
-    # Flip horizontally if too close to right edge
     if tx + width > right:
         tx = x - offset_x - width
 
-    # Flip vertically if too close to bottom edge
     if ty + height > bottom:
         ty = y - offset_y - height
 
-    # Clamp to screen boundaries
     tx = max(left, min(tx, right - width))
     ty = max(top, min(ty, bottom - height))
 
     return (tx, ty)
 
 
-# ---------------------------------------------------------------------------
-# Process name helper (for blacklist checking)
-# ---------------------------------------------------------------------------
-
 def get_foreground_process_name() -> str | None:
-    """Return the executable name (e.g. 'notepad.exe') of the foreground window."""
     try:
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
@@ -104,7 +76,6 @@ def get_foreground_process_name() -> str | None:
         if pid.value == 0:
             return None
 
-        # PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
         h_process = kernel32.OpenProcess(0x1000, False, pid.value)
         if not h_process:
             return None
@@ -112,7 +83,6 @@ def get_foreground_process_name() -> str | None:
         try:
             buf = ctypes.create_unicode_buffer(260)
             size = ctypes.wintypes.DWORD(260)
-            # QueryFullProcessImageNameW
             if kernel32.QueryFullProcessImageNameW(h_process, 0, buf, ctypes.byref(size)):
                 return os.path.basename(buf.value)
             return None

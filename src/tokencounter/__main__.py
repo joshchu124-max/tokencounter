@@ -19,17 +19,13 @@ def _ensure_single_instance() -> bool:
     try:
         kernel32 = ctypes.windll.kernel32
         mutex_name = "Global\\TokenCounterMutex_v1"
-        # CreateMutexW(lpMutexAttributes, bInitialOwner, lpName)
         handle = kernel32.CreateMutexW(None, False, mutex_name)
         last_error = kernel32.GetLastError()
-        # ERROR_ALREADY_EXISTS = 183
-        if last_error == 183:
+        if last_error == 183:  # ERROR_ALREADY_EXISTS
             kernel32.CloseHandle(handle)
             return False
-        # Keep the handle alive for the process lifetime (don't close it)
         return True
     except (AttributeError, OSError):
-        # Not on Windows or ctypes issue — allow running anyway
         return True
 
 
@@ -40,7 +36,7 @@ def _show_already_running() -> None:
             None,
             "TokenCounter is already running.\nCheck the system tray.",
             "TokenCounter",
-            0x40,  # MB_ICONINFORMATION
+            0x40,
         )
     except (AttributeError, OSError):
         print("TokenCounter is already running.", file=sys.stderr)
@@ -69,7 +65,7 @@ def main() -> None:
                 None,
                 f"TokenCounter encountered an error:\n{traceback.format_exc()[-500:]}",
                 "TokenCounter Error",
-                0x10,  # MB_ICONERROR
+                0x10,
             )
         except (AttributeError, OSError):
             traceback.print_exc()

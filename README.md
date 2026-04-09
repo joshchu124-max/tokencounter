@@ -1,13 +1,14 @@
 # TokenCounter
 
-A lightweight Windows desktop tool for local token counting. Select text in any application and instantly see the token count.
+A lightweight Windows desktop tool for local token counting. Select text, then double-press Ctrl to copy the selection in the background and instantly see the token count.
 
 ## Features
 
-- **Auto-detect text selection** — Automatically detects when you select text with your mouse and shows token count
-- **Double-press hotkey mode** — Alternative trigger via double-pressing Ctrl
+- **Double-press hotkey trigger** — No automatic popups while selecting; calculation starts only when you double-press Ctrl
+- **Clipboard-driven acquisition** — Explicitly copies the current selection on trigger, which is more reliable than passive selection detection
+- **Stale-result protection** — Waits for a real clipboard sequence change before accepting copied text, preventing old results from being shown again
 - **100% local** — All tokenization happens locally, no API calls
-- **Multiple tokenizers** — Switch between GPT-4o (o200k_base) and GPT-4 (cl100k_base)
+- **Multiple tokenizers** — Switch between GPT-4o (`o200k_base`) and GPT-4 (`cl100k_base`)
 - **Lightweight tooltip** — Non-intrusive floating tooltip that auto-fades
 - **System tray** — Lives in your system tray with easy access to settings
 
@@ -40,10 +41,10 @@ pyinstaller tokencounter.spec
 
 1. Launch TokenCounter — it appears as an icon in your system tray
 2. Select text in any application
-3. A floating tooltip shows: token count, character count, and current tokenizer
-4. Right-click the tray icon to:
+3. Double-press Ctrl
+4. A floating tooltip shows: token count, character count, and current tokenizer
+5. Right-click the tray icon to:
    - Enable/disable the tool
-   - Switch trigger mode (auto-detect / double-press hotkey)
    - Switch tokenizer
    - Calculate from clipboard
    - Exit
@@ -53,7 +54,7 @@ pyinstaller tokencounter.spec
 Settings are stored in `%APPDATA%/TokenCounter/config.json`:
 
 - `tokenizer`: Active encoding (`"o200k_base"` or `"cl100k_base"`)
-- `trigger_mode`: `"auto"` (mouse selection) or `"hotkey"` (double-press key)
+- `trigger_mode`: Stored as `"hotkey"` for compatibility; automatic mode is no longer used
 - `enabled`: Master on/off switch
 - `blacklist`: List of process names to ignore (e.g. `["game.exe"]`)
 
@@ -66,10 +67,10 @@ pytest tests/ -v
 
 ## Architecture
 
-```
+```text
 tokencounter/
-├── hooks.py              # Global mouse/keyboard hooks for trigger detection
-├── acquisition.py        # Text acquisition strategy chain (UIA → Win32 → Clipboard)
+├── hooks.py              # Global double-press Ctrl detection
+├── acquisition.py        # Explicit Ctrl+C + clipboard sequence validation
 ├── tokenizer_adapter.py  # Tokenizer abstraction + tiktoken implementation
 ├── tooltip.py            # Floating tooltip window (Win32 API)
 ├── tray.py               # System tray icon and menu

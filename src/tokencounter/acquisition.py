@@ -1,13 +1,8 @@
-"""Module 2: Text acquisition strategy chain.
+"""Selection acquisition via explicit clipboard copy.
 
-Attempts to read the currently selected text from the foreground application
-using multiple strategies in order of preference:
-
-1. UI Automation (comtypes IUIAutomation)
-2. Win32 messages (EM_GETSEL / WM_GETTEXT for classic controls)
-3. Clipboard fallback (simulate Ctrl+C, read clipboard, restore)
-
-Each strategy has a timeout. If all fail, returns None (silent failure).
+The app no longer tries to infer selection changes automatically.
+When the user explicitly triggers a count, we simulate Ctrl+C and wait
+for the clipboard sequence number to advance before accepting text.
 """
 
 from __future__ import annotations
@@ -19,221 +14,62 @@ import time
 
 from tokencounter.constants import (
     CF_UNICODETEXT,
-    CLIPBOARD_SETTLE_S,
+    CLIPBOARD_COPY_TIMEOUT_S,
+    CLIPBOARD_POLL_INTERVAL_S,
     INPUT_KEYBOARD,
     KEYEVENTF_KEYUP,
-    STRATEGY_TIMEOUT_S,
     VK_C,
     VK_CONTROL,
-    WM_GETTEXT,
-    WM_GETTEXTLENGTH,
 )
 
 logger = logging.getLogger("tokencounter")
 
 
 class TextAcquirer:
-    """Orchestrates the text acquisition strategy chain."""
+    """Explicitly copies the current selection and reads it from the clipboard."""
 
     def acquire(self) -> str | None:
-        """Try each strategy in order. Returns selected text or None."""
-        for strategy_name, strategy_fn in [
-            ("UIA", self._try_uia),
-            ("Win32Msg", self._try_win32msg),
-            ("Clipboard", self._try_clipboard),
-        ]:
-            try:
-                text = strategy_fn()
-                if text and text.strip():
-                    logger.debug("Acquired text via %s (%d chars)", strategy_name, len(text))
-                    return text
-            except Exception:
-                logger.debug("Strategy %s failed", strategy_name, exc_info=True)
-        return None
+        return self._copy_selection_via_clipboard()
 
-    # -- Strategy 1: UI Automation -------------------------------------------
-
-    def _try_uia(self) -> str | None:
-        """Use Windows UI Automation to get the focused element's selected text."""
+    def _copy_selection_via_clipboard(self) -> str | None:
         try:
-            import comtypes
-            import comtypes.client
-        except ImportError:
-            return None
-
-        try:
-            # Ensure COM is initialized on this thread
-            try:
-                comtypes.CoInitialize()
-            except OSError:
-                pass  # Already initialized
-
-            # Create IUIAutomation instance
-            uia = comtypes.CoCreateInstance(
-                comtypes.GUID("{FF48DBA4-60EF-4201-AA87-54103EEF594E}"),  # CLSID_CUIAutomation
-                interface=comtypes.gen.UIAutomationClient.IUIAutomation,
-            )
-
-            focused = uia.GetFocusedElement()
-            if not focused:
-                return None
-
-            # Try TextPattern first (supports selection)
-            try:
-                text_pattern = focused.GetCurrentPatternAs(
-                    10014,  # UIA_TextPatternId
-                    comtypes.gen.UIAutomationClient.IUIAutomationTextPattern,
-                )
-                if text_pattern:
-                    selection = text_pattern.GetSelection()
-                    if selection and selection.Length > 0:
-                        text_range = selection.GetElement(0)
-                        text = text_range.GetText(-1)  # -1 = no length limit
-                        if text:
-                            return text
-            except (AttributeError, comtypes.COMError):
-                pass
-
-            # Try ValuePattern (gets full control value, not selection)
-            try:
-                value_pattern = focused.GetCurrentPatternAs(
-                    10002,  # UIA_ValuePatternId
-                    comtypes.gen.UIAutomationClient.IUIAutomationValuePattern,
-                )
-                if value_pattern:
-                    value = value_pattern.CurrentValue
-                    if value:
-                        return value
-            except (AttributeError, comtypes.COMError):
-                pass
-
-            return None
-
-        except Exception:
-            logger.debug("UIA strategy error", exc_info=True)
-            return None
-
-    # -- Strategy 2: Win32 Messages ------------------------------------------
-
-    def _try_win32msg(self) -> str | None:
-        """Use Win32 SendMessage to get selected text from classic controls."""
-        try:
-            user32 = ctypes.windll.user32
-
-            # Get foreground window and its thread
-            fg_hwnd = user32.GetForegroundWindow()
-            if not fg_hwnd:
-                return None
-
-            fg_thread = user32.GetWindowThreadProcessId(fg_hwnd, None)
-            current_thread = ctypes.windll.kernel32.GetCurrentThreadId()
-
-            # Attach to foreground thread to access its focus
-            attached = False
-            if fg_thread != current_thread:
-                attached = bool(user32.AttachThreadInput(current_thread, fg_thread, True))
-
-            try:
-                focus_hwnd = user32.GetFocus()
-                if not focus_hwnd:
-                    return None
-
-                # Get window class name
-                class_buf = ctypes.create_unicode_buffer(256)
-                user32.GetClassNameW(focus_hwnd, class_buf, 256)
-                class_name = class_buf.value.lower()
-
-                # Check for Edit-like controls
-                if "edit" in class_name or "richedit" in class_name or "scintilla" in class_name:
-                    return self._get_edit_selection(focus_hwnd, class_name)
-
-                # Try generic WM_GETTEXT as fallback
-                text_len = user32.SendMessageW(focus_hwnd, WM_GETTEXTLENGTH, 0, 0)
-                if 0 < text_len < 100000:  # Sanity limit
-                    buf = ctypes.create_unicode_buffer(text_len + 1)
-                    user32.SendMessageW(focus_hwnd, WM_GETTEXT, text_len + 1, buf)
-                    return buf.value or None
-
-                return None
-            finally:
-                if attached:
-                    user32.AttachThreadInput(current_thread, fg_thread, False)
-
-        except Exception:
-            logger.debug("Win32Msg strategy error", exc_info=True)
-            return None
-
-    def _get_edit_selection(self, hwnd: int, class_name: str) -> str | None:
-        """Extract selected text from an Edit or RichEdit control."""
-        user32 = ctypes.windll.user32
-
-        # EM_GETSEL: wParam = &start, lParam = &end
-        EM_GETSEL = 0x00B0
-        start = ctypes.wintypes.DWORD()
-        end = ctypes.wintypes.DWORD()
-        user32.SendMessageW(hwnd, EM_GETSEL, ctypes.byref(start), ctypes.byref(end))
-
-        sel_start = start.value
-        sel_end = end.value
-
-        if sel_start == sel_end:
-            return None  # Nothing selected
-
-        # Get the full text
-        text_len = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0)
-        if text_len <= 0 or text_len > 1_000_000:
-            return None
-
-        buf = ctypes.create_unicode_buffer(text_len + 1)
-        user32.SendMessageW(hwnd, WM_GETTEXT, text_len + 1, buf)
-        full_text = buf.value
-
-        if sel_end > len(full_text):
-            sel_end = len(full_text)
-
-        return full_text[sel_start:sel_end] or None
-
-    # -- Strategy 3: Clipboard Fallback --------------------------------------
-
-    def _try_clipboard(self) -> str | None:
-        """Simulate Ctrl+C, read clipboard, restore original content."""
-        try:
-            user32 = ctypes.windll.user32
-            kernel32 = ctypes.windll.kernel32
-
-            # Save current clipboard content
+            original_seq = self._get_clipboard_sequence_number()
             original_text = self._read_clipboard()
 
-            # Simulate Ctrl+C using SendInput
             self._send_ctrl_c()
 
-            # Wait for the copy to complete
-            time.sleep(CLIPBOARD_SETTLE_S)
+            deadline = time.monotonic() + CLIPBOARD_COPY_TIMEOUT_S
+            copied_text: str | None = None
 
-            # Read the new clipboard content
-            new_text = self._read_clipboard()
+            while time.monotonic() < deadline:
+                current_seq = self._get_clipboard_sequence_number()
+                if current_seq != original_seq:
+                    copied_text = self._read_clipboard()
+                    if copied_text and copied_text.strip():
+                        logger.debug("Acquired text via clipboard (%d chars)", len(copied_text))
+                        break
+                time.sleep(CLIPBOARD_POLL_INTERVAL_S)
 
-            # Restore original clipboard
             if original_text is not None:
                 self._write_clipboard(original_text)
 
-            # If clipboard changed, return the new content
-            if new_text and new_text != original_text:
-                return new_text
+            if copied_text and copied_text.strip():
+                return copied_text
 
-            # If clipboard didn't change, the text might already have been
-            # the same as the selection, so return it anyway if non-empty
-            if new_text:
-                return new_text
-
+            logger.debug("Clipboard copy did not produce a new text payload")
             return None
 
         except Exception:
-            logger.debug("Clipboard strategy error", exc_info=True)
+            logger.debug("Clipboard acquisition error", exc_info=True)
             return None
 
+    def _get_clipboard_sequence_number(self) -> int:
+        try:
+            return int(ctypes.windll.user32.GetClipboardSequenceNumber())
+        except (AttributeError, OSError):
+            return 0
+
     def _read_clipboard(self) -> str | None:
-        """Read Unicode text from the clipboard."""
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
 
@@ -256,7 +92,6 @@ class TextAcquirer:
             user32.CloseClipboard()
 
     def _write_clipboard(self, text: str) -> None:
-        """Write Unicode text to the clipboard."""
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
 
@@ -264,8 +99,8 @@ class TextAcquirer:
             return
         try:
             user32.EmptyClipboard()
-            byte_len = (len(text) + 1) * 2  # UTF-16 + null terminator
-            h_mem = kernel32.GlobalAlloc(0x0042, byte_len)  # GMEM_MOVEABLE | GMEM_ZEROINIT
+            byte_len = (len(text) + 1) * 2
+            h_mem = kernel32.GlobalAlloc(0x0042, byte_len)
             if not h_mem:
                 return
             p_mem = kernel32.GlobalLock(h_mem)
@@ -319,20 +154,16 @@ class TextAcquirer:
 
         inputs = (INPUT * 4)()
 
-        # Ctrl down
         inputs[0].type = INPUT_KEYBOARD
         inputs[0].union.ki.wVk = VK_CONTROL
 
-        # C down
         inputs[1].type = INPUT_KEYBOARD
         inputs[1].union.ki.wVk = VK_C
 
-        # C up
         inputs[2].type = INPUT_KEYBOARD
         inputs[2].union.ki.wVk = VK_C
         inputs[2].union.ki.dwFlags = KEYEVENTF_KEYUP
 
-        # Ctrl up
         inputs[3].type = INPUT_KEYBOARD
         inputs[3].union.ki.wVk = VK_CONTROL
         inputs[3].union.ki.dwFlags = KEYEVENTF_KEYUP
