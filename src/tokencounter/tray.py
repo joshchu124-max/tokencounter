@@ -40,7 +40,18 @@ ID_ENABLE = 1001
 ID_TOK_O200K = 1020
 ID_TOK_CL100K = 1021
 ID_CLIPBOARD = 1030
+ID_DURATION_1 = 1040
+ID_DURATION_2 = 1041
+ID_DURATION_3 = 1042
+ID_DURATION_5 = 1043
 ID_EXIT = 1099
+
+_DURATION_OPTIONS = [
+    (ID_DURATION_1, 1.0, "1 秒"),
+    (ID_DURATION_2, 2.0, "2 秒"),
+    (ID_DURATION_3, 3.0, "3 秒"),
+    (ID_DURATION_5, 5.0, "5 秒"),
+]
 
 
 class NOTIFYICONDATAW(ctypes.Structure):
@@ -131,6 +142,14 @@ class TrayIcon:
             user32.AppendMenuW(tok_menu, flags, item_id, provider.name)
         user32.AppendMenuW(menu, 0x0010, tok_menu, "Tokenizer")
 
+        # Display duration submenu
+        dur_menu = user32.CreatePopupMenu()
+        current_dur = cfg.tooltip_display_s
+        for item_id, seconds, label in _DURATION_OPTIONS:
+            flags = MF_STRING | (MF_CHECKED if abs(current_dur - seconds) < 0.1 else MF_UNCHECKED)
+            user32.AppendMenuW(dur_menu, flags, item_id, label)
+        user32.AppendMenuW(menu, 0x0010, dur_menu, "Display Duration")
+
         user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
         user32.AppendMenuW(menu, MF_STRING, ID_CLIPBOARD, "Calculate from Clipboard")
         user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
@@ -157,6 +176,11 @@ class TrayIcon:
             self._app.on_config_changed("tokenizer", "cl100k_base")
         elif cmd == ID_CLIPBOARD:
             self._app.on_clipboard_calculate()
+        elif cmd in (ID_DURATION_1, ID_DURATION_2, ID_DURATION_3, ID_DURATION_5):
+            for item_id, seconds, _ in _DURATION_OPTIONS:
+                if cmd == item_id:
+                    self._app.on_config_changed("tooltip_display_s", seconds)
+                    break
         elif cmd == ID_EXIT:
             self._app.shutdown()
 

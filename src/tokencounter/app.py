@@ -59,7 +59,7 @@ class App:
         logger.info("Message window created: hwnd=%s", self._main_hwnd)
 
         self._acquirer = TextAcquirer()
-        self._tooltip = TooltipWindow()
+        self._tooltip = TooltipWindow(config_mgr=self.config_mgr)
         self._tray = TrayIcon(self)
         self._hooks = HookManager(on_trigger=self.on_trigger, config=self.config_mgr.config)
 

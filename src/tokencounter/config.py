@@ -22,6 +22,7 @@ class Config:
     trigger_mode: str = "hotkey"
     hotkey_vk: int = 0xA2
     enabled: bool = True
+    tooltip_display_s: float = 2.0
     blacklist: list[str] = dataclasses.field(default_factory=list)
 
 

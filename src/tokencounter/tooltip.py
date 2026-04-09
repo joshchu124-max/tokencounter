@@ -9,6 +9,7 @@ import ctypes
 import ctypes.wintypes
 import logging
 import queue
+from typing import TYPE_CHECKING
 
 from tokencounter.constants import (
     TOOLTIP_CORNER_RADIUS,
@@ -26,14 +27,20 @@ from tokencounter.constants import (
 )
 from tokencounter.utils import clamp_tooltip_position
 
+if TYPE_CHECKING:
+    from tokencounter.config import ConfigManager
+
 logger = logging.getLogger("tokencounter")
 
 DT_SINGLELINE = 0x0020
 DT_LEFT = 0x0000
+DT_CENTER = 0x0001
+DT_VCENTER = 0x0004
 PS_SOLID = 0
 TRANSPARENT = 1
 FW_NORMAL = 400
 FW_BOLD = 700
+FW_SEMIBOLD = 600
 DEFAULT_CHARSET = 1
 OUT_DEFAULT_PRECIS = 0
 CLIP_DEFAULT_PRECIS = 0
@@ -56,14 +63,21 @@ def _rgb(r: int, g: int, b: int) -> int:
     return (b << 16) | (g << 8) | r
 
 
-COLOR_BG = _rgb(31, 43, 57)
-COLOR_TEXT = _rgb(240, 240, 240)
-COLOR_ACCENT = _rgb(86, 160, 212)
-COLOR_BORDER = _rgb(64, 80, 96)
+# Modern dark theme inspired by VS Code / GitHub Copilot
+COLOR_BG = _rgb(30, 30, 30)           # Near-black background
+COLOR_BG_HEADER = _rgb(38, 38, 38)    # Slightly lighter header area
+COLOR_TEXT = _rgb(228, 228, 228)       # Soft white text
+COLOR_TOKEN_NUM = _rgb(78, 201, 176)   # Teal/mint for token number (eye-catching)
+COLOR_CHAR_NUM = _rgb(156, 220, 254)   # Light blue for char count
+COLOR_LABEL = _rgb(128, 128, 128)      # Gray for labels
+COLOR_MODEL = _rgb(206, 145, 120)      # Warm orange for model name
+COLOR_BORDER = _rgb(60, 60, 60)        # Subtle border
+COLOR_ACCENT_LINE = _rgb(78, 201, 176) # Teal accent bar on left
 
 
 class TooltipWindow:
-    def __init__(self) -> None:
+    def __init__(self, config_mgr: ConfigManager | None = None) -> None:
+        self._config_mgr = config_mgr
         self._queue: queue.Queue[dict | None] = queue.Queue()
         self._hwnd: int = 0
         self._running = False
@@ -71,6 +85,7 @@ class TooltipWindow:
         self._fade_alpha: int = 255
         self._mouse_hovering = False
         self._font_main = None
+        self._font_label = None
         self._font_small = None
         self._wnd_proc_ref = None
 
@@ -223,12 +238,17 @@ class TooltipWindow:
     def _create_fonts(self) -> None:
         gdi32 = ctypes.windll.gdi32
         self._font_main = gdi32.CreateFontW(
-            16, 0, 0, 0, FW_BOLD, 0, 0, 0,
+            20, 0, 0, 0, FW_BOLD, 0, 0, 0,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH, "Segoe UI"
+        )
+        self._font_label = gdi32.CreateFontW(
+            13, 0, 0, 0, FW_NORMAL, 0, 0, 0,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH, "Segoe UI"
         )
         self._font_small = gdi32.CreateFontW(
-            13, 0, 0, 0, FW_NORMAL, 0, 0, 0,
+            12, 0, 0, 0, FW_NORMAL, 0, 0, 0,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH, "Segoe UI"
         )
@@ -245,34 +265,65 @@ class TooltipWindow:
             return
 
         data = self._current_data
+        W, H = TOOLTIP_WIDTH, TOOLTIP_HEIGHT
 
-        rect = ctypes.wintypes.RECT(0, 0, TOOLTIP_WIDTH, TOOLTIP_HEIGHT)
+        # Fill background
+        rect = ctypes.wintypes.RECT(0, 0, W, H)
         brush = gdi32.CreateSolidBrush(COLOR_BG)
         user32.FillRect(hdc, ctypes.byref(rect), brush)
         gdi32.DeleteObject(brush)
 
+        # Rounded border
         pen = gdi32.CreatePen(PS_SOLID, 1, COLOR_BORDER)
         old_pen = gdi32.SelectObject(hdc, pen)
-        old_brush = gdi32.SelectObject(hdc, gdi32.GetStockObject(5))
-        gdi32.RoundRect(hdc, 0, 0, TOOLTIP_WIDTH, TOOLTIP_HEIGHT,
-                        TOOLTIP_CORNER_RADIUS, TOOLTIP_CORNER_RADIUS)
+        old_brush = gdi32.SelectObject(hdc, gdi32.GetStockObject(5))  # NULL_BRUSH
+        gdi32.RoundRect(hdc, 0, 0, W, H, TOOLTIP_CORNER_RADIUS, TOOLTIP_CORNER_RADIUS)
         gdi32.SelectObject(hdc, old_pen)
         gdi32.SelectObject(hdc, old_brush)
         gdi32.DeleteObject(pen)
 
+        # Left accent bar (3px wide teal strip)
+        accent_brush = gdi32.CreateSolidBrush(COLOR_ACCENT_LINE)
+        accent_rect = ctypes.wintypes.RECT(0, 4, 3, H - 4)
+        user32.FillRect(hdc, ctypes.byref(accent_rect), accent_brush)
+        gdi32.DeleteObject(accent_brush)
+
         gdi32.SetBkMode(hdc, TRANSPARENT)
 
+        # Row 1: Token count (large, teal)
         old_font = gdi32.SelectObject(hdc, self._font_main)
-        gdi32.SetTextColor(hdc, COLOR_TEXT)
-        line1 = f"Tokens: {data['token_count']:,}  |  Chars: {data['char_count']:,}"
-        r1 = ctypes.wintypes.RECT(12, 12, TOOLTIP_WIDTH - 12, 40)
-        user32.DrawTextW(hdc, line1, -1, ctypes.byref(r1), DT_LEFT | DT_SINGLELINE)
+        gdi32.SetTextColor(hdc, COLOR_TOKEN_NUM)
+        token_text = f"{data['token_count']:,}"
+        r1 = ctypes.wintypes.RECT(14, 10, W - 12, 34)
+        user32.DrawTextW(hdc, token_text, -1, ctypes.byref(r1), DT_LEFT | DT_SINGLELINE)
 
-        gdi32.SelectObject(hdc, self._font_small)
-        gdi32.SetTextColor(hdc, COLOR_ACCENT)
-        line2 = f"Model: {data['tokenizer_name']}"
-        r2 = ctypes.wintypes.RECT(12, 42, TOOLTIP_WIDTH - 12, 68)
-        user32.DrawTextW(hdc, line2, -1, ctypes.byref(r2), DT_LEFT | DT_SINGLELINE)
+        # "tokens" label next to the number
+        gdi32.SelectObject(hdc, self._font_label)
+        gdi32.SetTextColor(hdc, COLOR_LABEL)
+        # Measure token number width to place label after it
+        size = ctypes.wintypes.SIZE()
+        gdi32.SelectObject(hdc, self._font_main)
+        gdi32.GetTextExtentPoint32W(hdc, token_text, len(token_text), ctypes.byref(size))
+        label_x = 14 + size.cx + 6
+        gdi32.SelectObject(hdc, self._font_label)
+        r1_label = ctypes.wintypes.RECT(label_x, 16, W - 12, 34)
+        user32.DrawTextW(hdc, "tokens", -1, ctypes.byref(r1_label), DT_LEFT | DT_SINGLELINE)
+
+        # Row 2: Chars count (light blue) + model name (orange)
+        gdi32.SetTextColor(hdc, COLOR_CHAR_NUM)
+        chars_text = f"{data['char_count']:,} chars"
+        r2 = ctypes.wintypes.RECT(14, 38, 130, 54)
+        user32.DrawTextW(hdc, chars_text, -1, ctypes.byref(r2), DT_LEFT | DT_SINGLELINE)
+
+        # Separator dot
+        gdi32.SetTextColor(hdc, COLOR_LABEL)
+        r_dot = ctypes.wintypes.RECT(132, 38, 142, 54)
+        user32.DrawTextW(hdc, "·", -1, ctypes.byref(r_dot), DT_LEFT | DT_SINGLELINE)
+
+        # Model name
+        gdi32.SetTextColor(hdc, COLOR_MODEL)
+        r3 = ctypes.wintypes.RECT(144, 38, W - 12, 54)
+        user32.DrawTextW(hdc, data['tokenizer_name'], -1, ctypes.byref(r3), DT_LEFT | DT_SINGLELINE)
 
         gdi32.SelectObject(hdc, old_font)
         user32.EndPaint(hwnd, ctypes.byref(ps))
@@ -300,10 +351,23 @@ class TooltipWindow:
             TOOLTIP_OFFSET_X, TOOLTIP_OFFSET_Y,
         )
 
+        # Declare argtypes so 64-bit HWND params don't shift x/y arguments
+        HWND = ctypes.wintypes.HWND
+        user32.SetWindowPos.argtypes = [
+            HWND, HWND,
+            ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+            ctypes.c_uint,
+        ]
+        user32.SetWindowPos.restype = ctypes.wintypes.BOOL
+
+        HWND_TOPMOST = HWND(-1)
+        SWP_NOACTIVATE = 0x0010
+        SWP_SHOWWINDOW = 0x0040
+
         user32.SetWindowPos(
-            self._hwnd, -1,
+            self._hwnd, HWND_TOPMOST,
             x, y, TOOLTIP_WIDTH, TOOLTIP_HEIGHT,
-            0x0010 | 0x0040,
+            SWP_NOACTIVATE | SWP_SHOWWINDOW,
         )
 
         self._fade_alpha = 255
@@ -312,7 +376,10 @@ class TooltipWindow:
         user32.InvalidateRect(self._hwnd, None, True)
 
         user32.KillTimer(self._hwnd, TIMER_FADE)
-        display_ms = int(TOOLTIP_DISPLAY_S * 1000)
+        display_s = TOOLTIP_DISPLAY_S
+        if self._config_mgr:
+            display_s = self._config_mgr.config.tooltip_display_s
+        display_ms = int(display_s * 1000)
         user32.SetTimer(self._hwnd, TIMER_FADE, display_ms, None)
 
     def _on_fade_tick(self) -> None:
@@ -343,6 +410,8 @@ class TooltipWindow:
         gdi32 = ctypes.windll.gdi32
         if self._font_main:
             gdi32.DeleteObject(self._font_main)
+        if self._font_label:
+            gdi32.DeleteObject(self._font_label)
         if self._font_small:
             gdi32.DeleteObject(self._font_small)
         logger.debug("Tooltip thread cleaned up")
