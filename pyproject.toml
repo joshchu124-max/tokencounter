@@ -7,7 +7,21 @@ name = "tokencounter"
 version = "0.1.0"
 description = "Lightweight Windows desktop tool for local token counting"
 requires-python = ">=3.11"
-license = "MIT"
+license = "AGPL-3.0-only"
+authors = [
+    { name = "Josh Chu" },
+]
+keywords = ["token", "counter", "tiktoken", "gpt", "tokenizer"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Win32 (MS Windows)",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Operating System :: Microsoft :: Windows :: Windows 10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing",
+    "Topic :: Utilities",
+]
 dependencies = [
     "pywin32>=306",
     "tiktoken>=0.7.0",
