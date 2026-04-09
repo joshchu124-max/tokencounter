@@ -112,6 +112,18 @@ class TextAcquirer:
             user32.CloseClipboard()
 
     def _send_ctrl_c(self) -> None:
+        """Simulate Ctrl+C keypress via SendInput."""
+
+        class MOUSEINPUT(ctypes.Structure):
+            _fields_ = [
+                ("dx", ctypes.c_long),
+                ("dy", ctypes.c_long),
+                ("mouseData", ctypes.wintypes.DWORD),
+                ("dwFlags", ctypes.wintypes.DWORD),
+                ("time", ctypes.wintypes.DWORD),
+                ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+            ]
+
         class KEYBDINPUT(ctypes.Structure):
             _fields_ = [
                 ("wVk", ctypes.wintypes.WORD),
@@ -121,10 +133,20 @@ class TextAcquirer:
                 ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
             ]
 
+        class HARDWAREINPUT(ctypes.Structure):
+            _fields_ = [
+                ("uMsg", ctypes.wintypes.DWORD),
+                ("wParamL", ctypes.wintypes.WORD),
+                ("wParamH", ctypes.wintypes.WORD),
+            ]
+
         class INPUT(ctypes.Structure):
             class _INPUT_UNION(ctypes.Union):
-                _fields_ = [("ki", KEYBDINPUT)]
-
+                _fields_ = [
+                    ("mi", MOUSEINPUT),
+                    ("ki", KEYBDINPUT),
+                    ("hi", HARDWAREINPUT),
+                ]
             _fields_ = [
                 ("type", ctypes.wintypes.DWORD),
                 ("union", _INPUT_UNION),

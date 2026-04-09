@@ -112,7 +112,7 @@ class TooltipWindow:
         self._cleanup()
 
     def _create_window(self) -> int:
-        LRESULT = ctypes.wintypes.LPARAM
+        LRESULT = ctypes.wintypes.LPARAM  # LONG_PTR — pointer-sized
         WNDPROC = ctypes.WINFUNCTYPE(
             LRESULT,
             ctypes.wintypes.HWND,
@@ -121,6 +121,7 @@ class TooltipWindow:
             ctypes.wintypes.LPARAM,
         )
 
+        # WNDCLASSW is not in ctypes.wintypes — define it here
         class WNDCLASSW(ctypes.Structure):
             _fields_ = [
                 ("style", ctypes.c_uint),
@@ -188,6 +189,23 @@ class TooltipWindow:
             ctypes.wintypes.HMENU,
             ctypes.wintypes.HINSTANCE,
             ctypes.c_void_p,
+        ]
+        ctypes.windll.user32.CreateWindowExW.restype = ctypes.wintypes.HWND
+
+        # Declare argtypes to ensure correct marshalling on 64-bit Windows
+        ctypes.windll.user32.CreateWindowExW.argtypes = [
+            ctypes.wintypes.DWORD,   # dwExStyle
+            ctypes.c_wchar_p,        # lpClassName
+            ctypes.c_wchar_p,        # lpWindowName
+            ctypes.wintypes.DWORD,   # dwStyle
+            ctypes.c_int,            # x
+            ctypes.c_int,            # y
+            ctypes.c_int,            # nWidth
+            ctypes.c_int,            # nHeight
+            ctypes.wintypes.HWND,    # hWndParent
+            ctypes.wintypes.HMENU,   # hMenu
+            ctypes.wintypes.HINSTANCE,  # hInstance
+            ctypes.c_void_p,         # lpParam
         ]
         ctypes.windll.user32.CreateWindowExW.restype = ctypes.wintypes.HWND
 

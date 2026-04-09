@@ -15,18 +15,23 @@ import os
 import tiktoken_ext.openai_public  # noqa: F401
 
 tiktoken_cache = os.path.dirname(tiktoken_ext.openai_public.__file__)
+
+# Also include the user's tiktoken cache (downloaded .tiktoken files)
+# Prefer the project-local tiktoken_cache directory, then env var, then default
+project_cache = os.path.join(os.path.dirname(os.path.abspath(SPEC)), "tiktoken_cache")
 user_cache = os.environ.get(
     "TIKTOKEN_CACHE_DIR",
     os.path.join(os.path.expanduser("~"), ".tiktoken_cache"),
 )
+cache_dir = project_cache if os.path.isdir(project_cache) else user_cache
 
 datas = []
 datas.append((tiktoken_cache, "tiktoken_ext/openai_public"))
 
-if os.path.isdir(user_cache):
-    for f in os.listdir(user_cache):
-        if f.endswith(".tiktoken") or f.endswith(".bin"):
-            datas.append((os.path.join(user_cache, f), "tiktoken_cache"))
+# Bundle any cached tiktoken files (both hash-named and .tiktoken/.bin files)
+if os.path.isdir(cache_dir):
+    for f in os.listdir(cache_dir):
+        datas.append((os.path.join(cache_dir, f), "tiktoken_cache"))
 
 assets_dir = os.path.join(os.path.dirname(os.path.abspath(SPEC)), "assets")
 if os.path.isdir(assets_dir):
