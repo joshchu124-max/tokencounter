@@ -7,7 +7,7 @@ Thanks for your interest in contributing! Here's how to get started.
 ## Development Setup
 
 ```bash
-git clone https://github.com/JoshChu/tokencounter.git
+git clone https://github.com/joshchu124-max/tokencounter.git
 cd tokencounter
 python -m venv .venv
 .venv\Scripts\activate
