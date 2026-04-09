@@ -1,6 +1,6 @@
 """Global double-press hotkey detection.
 
-TokenCounter now uses explicit triggering only: double-press Ctrl to
+TokenCounter uses explicit triggering only: double-press Ctrl to
 request a token calculation for the current selection.
 """
 
@@ -24,15 +24,12 @@ from tokencounter.constants import (
 logger = logging.getLogger("tokencounter")
 
 # LRESULT is LONG_PTR (8 bytes on 64-bit Windows).
-# Using c_long (4 bytes) here would leave the upper 4 bytes of the return
-# register as garbage, which Windows may interpret as non-zero, causing it
-# to swallow mouse/keyboard events and freeze the input device.
-LRESULT = ctypes.wintypes.LPARAM  # LONG_PTR — pointer-sized signed int
+LRESULT = ctypes.wintypes.LPARAM
 
 # ctypes callback type for low-level hooks
 HOOKPROC = ctypes.WINFUNCTYPE(
-    LRESULT,                    # return: LRESULT (must be pointer-sized)
-    ctypes.c_int,               # nCode
+    LRESULT,
+    ctypes.c_int,
     ctypes.wintypes.WPARAM,
     ctypes.wintypes.LPARAM,
 )
@@ -43,24 +40,13 @@ _user32 = ctypes.windll.user32
 _user32.SetWindowsHookExW.argtypes = [
     ctypes.c_int, HOOKPROC, ctypes.wintypes.HINSTANCE, ctypes.wintypes.DWORD,
 ]
-_user32.SetWindowsHookExW.restype = LRESULT  # HHOOK (pointer-sized handle)
+_user32.SetWindowsHookExW.restype = LRESULT
 _user32.UnhookWindowsHookEx.argtypes = [LRESULT]
 _user32.UnhookWindowsHookEx.restype = ctypes.wintypes.BOOL
 _user32.CallNextHookEx.argtypes = [
     LRESULT, ctypes.c_int, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM,
 ]
 _user32.CallNextHookEx.restype = LRESULT
-
-
-class MSLLHOOKSTRUCT(ctypes.Structure):
-    """Structure passed to WH_MOUSE_LL callback via lParam."""
-    _fields_ = [
-        ("pt", ctypes.wintypes.POINT),
-        ("mouseData", ctypes.wintypes.DWORD),
-        ("flags", ctypes.wintypes.DWORD),
-        ("time", ctypes.wintypes.DWORD),
-        ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
-    ]
 
 
 class KBDLLHOOKSTRUCT(ctypes.Structure):
@@ -86,124 +72,32 @@ class HookManager:
         self._last_trigger_time: float = 0.0
 
     def install(self) -> None:
-        """Install the appropriate hooks based on current mode."""
-        if self._mode == "auto":
-            self._install_mouse_hook()
-        else:
-            self._install_keyboard_hook()
-        logger.info("Hooks installed in '%s' mode", self._mode)
-
-    def uninstall(self) -> None:
-        """Remove all installed hooks."""
-        self._cancel_debounce()
-        user32 = ctypes.windll.user32
-        if self._mouse_hook:
-            user32.UnhookWindowsHookEx(self._mouse_hook)
-            self._mouse_hook = 0
-        if self._keyboard_hook:
-            user32.UnhookWindowsHookEx(self._keyboard_hook)
-            self._keyboard_hook = 0
-        logger.info("Hooks uninstalled")
-
-    def set_mode(self, mode: str) -> None:
-        """Switch between 'auto' and 'hotkey' mode at runtime."""
-        if mode == self._mode:
-            return
-        self.uninstall()
-        self._mode = mode
-        self.install()
-
-    # -- mouse hook (auto-detect mode) ---------------------------------------
-
-    def _install_mouse_hook(self) -> None:
-        def mouse_proc(nCode: int, wParam: int, lParam: int) -> int:
-            if nCode >= 0:
-                # Only process button down/up — ignore WM_MOUSEMOVE etc.
-                # to avoid unnecessary ctypes.cast and GIL contention
-                if wParam in (WM_LBUTTONDOWN, WM_LBUTTONUP):
-                    try:
-                        self._handle_mouse_event(wParam, lParam)
-                    except Exception:
-                        logger.exception("Error in mouse hook callback")
-            return ctypes.windll.user32.CallNextHookEx(0, nCode, wParam, lParam)
-
-        self._mouse_proc_ref = HOOKPROC(mouse_proc)
-        self._mouse_hook = ctypes.windll.user32.SetWindowsHookExW(
-            WH_MOUSE_LL, self._mouse_proc_ref, None, 0
-        )
-        if not self._mouse_hook:
-            logger.error("Failed to install mouse hook")
-
-    def _handle_mouse_event(self, wParam: int, lParam: int) -> None:
-        if wParam not in (WM_LBUTTONDOWN, WM_LBUTTONUP):
-            return
-
-        info = ctypes.cast(lParam, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
-
-        if wParam == WM_LBUTTONDOWN:
-            self._press_pos = (info.pt.x, info.pt.y)
-            self._press_time = time.monotonic()
-            # Cancel any pending debounce (user started a new gesture)
-            self._cancel_debounce()
-
-        elif wParam == WM_LBUTTONUP:
-            up_x, up_y = info.pt.x, info.pt.y
-
-            # Click-vs-select heuristic: check drag distance
-            dx = up_x - self._press_pos[0]
-            dy = up_y - self._press_pos[1]
-            distance = math.sqrt(dx * dx + dy * dy)
-
-            if distance < MIN_DRAG_DISTANCE_PX:
-                # This was just a click, not a text selection
-                return
-
-            self._last_mouseup_pos = (up_x, up_y)
-
-            # Cancel previous debounce and start a new one
-            self._cancel_debounce()
-            self._debounce_timer = threading.Timer(DEBOUNCE_S, self._debounce_fire)
-            self._debounce_timer.daemon = True
-            self._debounce_timer.start()
-
-    def _debounce_fire(self) -> None:
-        """Called after debounce delay. Checks throttle, then fires trigger."""
-        now = time.monotonic()
-        if (now - self._last_trigger_time) < THROTTLE_INTERVAL_S:
-            return  # Still within throttle window
-        self._last_trigger_time = now
-        x, y = self._last_mouseup_pos
-        logger.debug("Auto-detect trigger at (%d, %d)", x, y)
-        self._on_trigger(x, y)
-
-    def _cancel_debounce(self) -> None:
-        if self._debounce_timer is not None:
-            self._debounce_timer.cancel()
-            self._debounce_timer = None
-
-    # -- keyboard hook (hotkey mode) -----------------------------------------
-
-    def _install_keyboard_hook(self) -> None:
+        """Install the keyboard hook for hotkey detection."""
         def keyboard_proc(nCode: int, wParam: int, lParam: int) -> int:
             if nCode >= 0:
                 try:
                     self._handle_keyboard_event(wParam, lParam)
                 except Exception:
                     logger.exception("Error in keyboard hook callback")
-            return ctypes.windll.user32.CallNextHookEx(0, nCode, wParam, lParam)
+            return _user32.CallNextHookEx(0, nCode, wParam, lParam)
 
         self._keyboard_proc_ref = HOOKPROC(keyboard_proc)
-        self._keyboard_hook = ctypes.windll.user32.SetWindowsHookExW(
-            WH_KEYBOARD_LL, self._keyboard_proc_ref, None, 0
+
+        # WH_KEYBOARD_LL is a global hook that runs in the installing
+        # thread's context, so hMod=NULL (0) is valid and avoids issues
+        # with module handles being truncated/invalid in PyInstaller.
+        self._keyboard_hook = _user32.SetWindowsHookExW(
+            WH_KEYBOARD_LL, self._keyboard_proc_ref, 0, 0
         )
         if not self._keyboard_hook:
-            logger.error("Failed to install keyboard hook")
+            logger.error("Failed to install keyboard hook (GetLastError=%d)",
+                         ctypes.windll.kernel32.GetLastError())
         else:
-            logger.info("Hooks installed in 'hotkey' mode")
+            logger.info("Keyboard hook installed (hotkey vk=0x%02X)", self._hotkey_vk)
 
     def uninstall(self) -> None:
         if self._keyboard_hook:
-            ctypes.windll.user32.UnhookWindowsHookEx(self._keyboard_hook)
+            _user32.UnhookWindowsHookEx(self._keyboard_hook)
             self._keyboard_hook = 0
         logger.info("Hooks uninstalled")
 
@@ -215,6 +109,11 @@ class HookManager:
     def _handle_keyboard_event(self, wParam: int, lParam: int) -> None:
         info = ctypes.cast(lParam, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
         vk = info.vkCode
+
+        # Ignore injected/synthetic keystrokes (e.g., our own SendInput for Ctrl+C)
+        # LLKHF_INJECTED = 0x10
+        if info.flags & 0x10:
+            return
 
         if wParam in (WM_KEYUP, WM_SYSKEYUP):
             if vk == self._hotkey_vk:
@@ -231,8 +130,8 @@ class HookManager:
                     self._last_trigger_time = now
 
                     pt = ctypes.wintypes.POINT()
-                    ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
-                    logger.debug("Hotkey trigger at (%d, %d)", pt.x, pt.y)
+                    _user32.GetCursorPos(ctypes.byref(pt))
+                    logger.info("Hotkey double-tap triggered at (%d, %d)", pt.x, pt.y)
                     self._on_trigger(pt.x, pt.y)
                 else:
                     self._last_hotkey_up_time = now

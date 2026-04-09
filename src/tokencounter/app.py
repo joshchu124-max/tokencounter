@@ -159,7 +159,7 @@ class App:
             try:
                 text = self._acquirer.acquire()
                 if not text or not text.strip():
-                    logger.debug("Worker: no fresh copied text was available")
+                    logger.info("Worker: no text acquired from clipboard (nothing selected?)")
                     continue
 
                 text_hash = hashlib.md5(text.encode("utf-8", errors="replace")).hexdigest()

@@ -33,10 +33,17 @@ class TextAcquirer:
 
     def _copy_selection_via_clipboard(self) -> str | None:
         try:
+            # Brief delay to let any physical key release (e.g., Ctrl double-tap)
+            # fully propagate through the input system before we inject Ctrl+C.
+            time.sleep(0.1)
+
             original_seq = self._get_clipboard_sequence_number()
             original_text = self._read_clipboard()
 
-            self._send_ctrl_c()
+            sent = self._send_ctrl_c()
+            if not sent:
+                logger.warning("SendInput failed — cannot simulate Ctrl+C")
+                return None
 
             deadline = time.monotonic() + CLIPBOARD_COPY_TIMEOUT_S
             copied_text: str | None = None
@@ -56,11 +63,12 @@ class TextAcquirer:
             if copied_text and copied_text.strip():
                 return copied_text
 
-            logger.debug("Clipboard copy did not produce a new text payload")
+            logger.info("Clipboard copy did not produce new text (timeout=%.1fs)",
+                        CLIPBOARD_COPY_TIMEOUT_S)
             return None
 
         except Exception:
-            logger.debug("Clipboard acquisition error", exc_info=True)
+            logger.warning("Clipboard acquisition error", exc_info=True)
             return None
 
     def _get_clipboard_sequence_number(self) -> int:
@@ -72,6 +80,12 @@ class TextAcquirer:
     def _read_clipboard(self) -> str | None:
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
+
+        # Declare correct 64-bit pointer return types
+        user32.GetClipboardData.restype = ctypes.c_void_p
+        kernel32.GlobalLock.restype = ctypes.c_void_p
+        kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+        kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
 
         if not user32.OpenClipboard(None):
             return None
@@ -95,6 +109,14 @@ class TextAcquirer:
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
 
+        # Declare correct 64-bit pointer return types
+        kernel32.GlobalAlloc.restype = ctypes.c_void_p
+        kernel32.GlobalAlloc.argtypes = [ctypes.c_uint, ctypes.c_size_t]
+        kernel32.GlobalLock.restype = ctypes.c_void_p
+        kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+        kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+        user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
+
         if not user32.OpenClipboard(None):
             return
         try:
@@ -111,8 +133,8 @@ class TextAcquirer:
         finally:
             user32.CloseClipboard()
 
-    def _send_ctrl_c(self) -> None:
-        """Simulate Ctrl+C keypress via SendInput."""
+    def _send_ctrl_c(self) -> bool:
+        """Simulate Ctrl+C keypress via SendInput. Returns True on success."""
 
         class MOUSEINPUT(ctypes.Structure):
             _fields_ = [
@@ -168,4 +190,13 @@ class TextAcquirer:
         inputs[3].union.ki.wVk = VK_CONTROL
         inputs[3].union.ki.dwFlags = KEYEVENTF_KEYUP
 
-        ctypes.windll.user32.SendInput(4, ctypes.byref(inputs), ctypes.sizeof(INPUT))
+        _send = ctypes.windll.user32.SendInput
+        _send.argtypes = [ctypes.c_uint, ctypes.c_void_p, ctypes.c_int]
+        _send.restype = ctypes.c_uint
+        count = _send(4, ctypes.byref(inputs), ctypes.sizeof(INPUT))
+        if count != 4:
+            logger.warning("SendInput returned %d (expected 4), GetLastError=%d",
+                           count, ctypes.windll.kernel32.GetLastError())
+            return False
+        logger.debug("SendInput injected %d key events", count)
+        return True
