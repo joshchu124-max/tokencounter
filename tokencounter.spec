@@ -12,11 +12,8 @@ The spec file will bundle the cached tiktoken data into the exe.
 """
 
 import os
-import sys
-import tiktoken_ext.openai_public  # noqa: F401 — needed to find data files
-import tiktoken
+import tiktoken_ext.openai_public  # noqa: F401
 
-# Find tiktoken's cached encoding files
 tiktoken_cache = os.path.dirname(tiktoken_ext.openai_public.__file__)
 
 # Also include the user's tiktoken cache (downloaded .tiktoken files)
@@ -29,8 +26,6 @@ user_cache = os.environ.get(
 cache_dir = project_cache if os.path.isdir(project_cache) else user_cache
 
 datas = []
-
-# Bundle the tiktoken_ext package (contains encoding registry)
 datas.append((tiktoken_cache, "tiktoken_ext/openai_public"))
 
 # Bundle any cached tiktoken files (both hash-named and .tiktoken/.bin files)
@@ -38,7 +33,6 @@ if os.path.isdir(cache_dir):
     for f in os.listdir(cache_dir):
         datas.append((os.path.join(cache_dir, f), "tiktoken_cache"))
 
-# Bundle the assets directory (icon)
 assets_dir = os.path.join(os.path.dirname(os.path.abspath(SPEC)), "assets")
 if os.path.isdir(assets_dir):
     datas.append((assets_dir, "assets"))
@@ -88,7 +82,7 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,  # Windowed (no console)
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

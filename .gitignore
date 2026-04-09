@@ -11,3 +11,18 @@ build/
 .pytest_cache/
 .venv/
 venv/
+
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs
+*.log
