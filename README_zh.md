@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/joshchu124-max/tokencounter/releases"><img alt="Release" src="https://img.shields.io/github/v/release/joshchu124-max/tokencounter?style=flat-square"></a>
+  <a href="https://github.com/joshchu124-max/tokencounter/releases/tag/v0.1.0"><img alt="Release" src="https://img.shields.io/github/v/release/joshchu124-max/tokencounter?style=flat-square"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010+-0078d4?style=flat-square&logo=windows">
   <img alt="Python" src="https://img.shields.io/badge/python-3.11+-3776ab?style=flat-square&logo=python&logoColor=white">
