@@ -1,13 +1,7 @@
-"""Tests for the tokenizer adapter module.
-
-These tests are cross-platform and can run on Linux/CI
-(tiktoken works on all platforms, but requires encoding data
-to be cached or downloadable).
-"""
+"""Tests for the tokenizer adapter module."""
 
 import pytest
 
-# Check if tiktoken encoding data is available (needs network on first run)
 _tiktoken_available = False
 try:
     import tiktoken
@@ -29,8 +23,6 @@ from tokencounter.tokenizer_adapter import (
 
 @requires_tiktoken
 class TestTiktokenProvider:
-    """Tests for the tiktoken-based tokenizer provider."""
-
     def _make(self, enc="o200k_base", name="GPT-4o"):
         from tokencounter.tokenizer_adapter import TiktokenProvider
         return TiktokenProvider(enc, name)
@@ -87,12 +79,6 @@ class TestTiktokenProvider:
 
 
 class TestTokenizerRegistry:
-    """Tests for the tokenizer registry.
-
-    Registry tests that only check registration/lookup logic
-    don't need tiktoken data since they test structure, not encoding.
-    """
-
     @requires_tiktoken
     def test_builtins_registered(self):
         registry = TokenizerRegistry()
