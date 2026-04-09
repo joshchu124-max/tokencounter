@@ -1,27 +1,43 @@
 # TokenCounter
 
-A lightweight Windows desktop tool for local token counting. Select text, then double-press Ctrl to copy the selection in the background and instantly see the token count.
+<p align="center">
+  <strong>A lightweight Windows desktop tool for local token counting.</strong><br>
+  Select text in any application, double-press Ctrl, and instantly see the token count.
+</p>
+
+<p align="center">
+  <a href="https://github.com/JoshChu/tokencounter/releases"><img alt="Release" src="https://img.shields.io/github/v/release/JoshChu/tokencounter?style=flat-square"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square"></a>
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010+-0078d4?style=flat-square&logo=windows">
+  <img alt="Python" src="https://img.shields.io/badge/python-3.11+-3776ab?style=flat-square&logo=python&logoColor=white">
+</p>
+
+<p align="center">
+  <strong>English</strong> | <a href="README_zh.md">中文</a>
+</p>
+
+---
 
 ## Features
 
-- **Double-press hotkey trigger** — No automatic popups while selecting; calculation starts only when you double-press Ctrl
-- **Clipboard-driven acquisition** — Explicitly copies the current selection on trigger, which is more reliable than passive selection detection
-- **Stale-result protection** — Waits for a real clipboard sequence change before accepting copied text, preventing old results from being shown again
-- **100% local** — All tokenization happens locally, no API calls
+- **Double-press Ctrl trigger** — Select text in any app, double-press Ctrl to see the token count
+- **100% local** — All tokenization happens locally via [tiktoken](https://github.com/openai/tiktoken), zero network calls
 - **Multiple tokenizers** — Switch between GPT-4o (`o200k_base`) and GPT-4 (`cl100k_base`)
-- **Lightweight tooltip** — Non-intrusive floating tooltip that auto-fades
-- **System tray** — Lives in your system tray with easy access to settings
-
-## Requirements
-
-- Windows 10 or later
-- Python 3.11+ (for development)
+- **Floating tooltip** — Modern dark-themed tooltip that auto-fades, with configurable display duration
+- **System tray** — Lives in your system tray with right-click menu for all settings
+- **Single exe** — Distributable as a single portable `.exe` file
 
 ## Quick Start
 
-### Run from source
+### Option 1: Download the exe
+
+Download `TokenCounter.exe` from the [Releases](https://github.com/JoshChu/tokencounter/releases) page and run it. No installation required.
+
+### Option 2: Run from source
 
 ```bash
+git clone https://github.com/JoshChu/tokencounter.git
+cd tokencounter
 pip install -r requirements.txt
 python -m tokencounter
 ```
@@ -30,7 +46,7 @@ python -m tokencounter
 
 ```bash
 pip install -r requirements-dev.txt
-# Ensure tiktoken data is cached first:
+# Cache tiktoken data locally:
 python -c "import tiktoken; tiktoken.get_encoding('o200k_base'); tiktoken.get_encoding('cl100k_base')"
 # Build:
 pyinstaller tokencounter.spec
@@ -39,24 +55,43 @@ pyinstaller tokencounter.spec
 
 ## Usage
 
-1. Launch TokenCounter — it appears as an icon in your system tray
-2. Select text in any application
-3. Double-press Ctrl
-4. A floating tooltip shows: token count, character count, and current tokenizer
-5. Right-click the tray icon to:
-   - Enable/disable the tool
-   - Switch tokenizer
+1. Launch `TokenCounter.exe` — an icon appears in the system tray
+2. Select text in **any** application
+3. **Double-press Ctrl** — a floating tooltip shows token count, character count, and the active tokenizer
+4. Right-click the tray icon to:
+   - Enable / disable
+   - Switch tokenizer (GPT-4o / GPT-4)
+   - Adjust tooltip display duration (1–5 s)
    - Calculate from clipboard
    - Exit
 
 ## Configuration
 
-Settings are stored in `%APPDATA%/TokenCounter/config.json`:
+Settings are persisted to `%APPDATA%\TokenCounter\config.json`:
 
-- `tokenizer`: Active encoding (`"o200k_base"` or `"cl100k_base"`)
-- `trigger_mode`: Stored as `"hotkey"` for compatibility; automatic mode is no longer used
-- `enabled`: Master on/off switch
-- `blacklist`: List of process names to ignore (e.g. `["game.exe"]`)
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `tokenizer` | `string` | `"o200k_base"` | Active encoding name |
+| `hotkey_vk` | `int` | `0xA2` | Virtual key code for trigger (left Ctrl) |
+| `enabled` | `bool` | `true` | Master on/off switch |
+| `tooltip_display_s` | `float` | `2.0` | Tooltip display duration in seconds |
+| `blacklist` | `string[]` | `[]` | Process names to ignore |
+
+## Architecture
+
+```
+src/tokencounter/
+├── __main__.py           # Entry point & single-instance mutex
+├── app.py                # Application orchestrator & Win32 message pump
+├── hooks.py              # Global keyboard hook (double-press Ctrl detection)
+├── acquisition.py        # Text acquisition via simulated Ctrl+C
+├── tokenizer_adapter.py  # Tokenizer abstraction + tiktoken backends
+├── tooltip.py            # Floating tooltip window (Win32 GDI)
+├── tray.py               # System tray icon & context menu
+├── config.py             # Configuration persistence (JSON)
+├── constants.py          # Shared constants
+└── utils.py              # DPI awareness, screen geometry, logging
+```
 
 ## Development
 
@@ -65,16 +100,8 @@ pip install -r requirements-dev.txt
 pytest tests/ -v
 ```
 
-## Architecture
+## License
 
-```text
-tokencounter/
-├── hooks.py              # Global double-press Ctrl detection
-├── acquisition.py        # Explicit Ctrl+C + clipboard sequence validation
-├── tokenizer_adapter.py  # Tokenizer abstraction + tiktoken implementation
-├── tooltip.py            # Floating tooltip window (Win32 API)
-├── tray.py               # System tray icon and menu
-├── config.py             # Configuration persistence
-├── app.py                # Application orchestrator and threading model
-└── __main__.py           # Entry point
-```
+This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+
+Copyright (c) 2026 Josh Chu
