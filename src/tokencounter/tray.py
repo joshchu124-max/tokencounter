@@ -37,6 +37,8 @@ MF_CHECKED = 0x0008
 MF_UNCHECKED = 0x0000
 
 ID_ENABLE = 1001
+ID_STARTUP = 1002
+ID_OPEN_PANEL = 1003
 ID_TOK_O200K = 1020
 ID_TOK_CL100K = 1021
 ID_CLIPBOARD = 1030
@@ -118,12 +120,16 @@ class TrayIcon:
         if lparam == WM_RBUTTONUP:
             self._show_context_menu(hwnd)
         elif lparam == WM_LBUTTONDBLCLK:
-            cfg = self._app.config_mgr.config
-            self._app.on_config_changed("enabled", not cfg.enabled)
+            self._app.show_control_panel()
 
     def _show_context_menu(self, hwnd: int) -> None:
         user32 = ctypes.windll.user32
         cfg = self._app.config_mgr.config
+        startup_enabled = False
+        try:
+            startup_enabled = self._app.startup_mgr.is_enabled()
+        except Exception:
+            logger.exception("Failed to read startup registration state")
 
         menu = user32.CreatePopupMenu()
 
@@ -131,6 +137,9 @@ class TrayIcon:
         flags = MF_STRING | (MF_CHECKED if cfg.enabled else MF_UNCHECKED)
         user32.AppendMenuW(menu, flags, ID_ENABLE, f"✓  {enable_text}" if cfg.enabled else f"    {enable_text}")
 
+        user32.AppendMenuW(menu, MF_STRING, ID_OPEN_PANEL, "Open Control Panel")
+        startup_flags = MF_STRING | (MF_CHECKED if startup_enabled else MF_UNCHECKED)
+        user32.AppendMenuW(menu, startup_flags, ID_STARTUP, "Launch at startup")
         user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
         user32.AppendMenuW(menu, MF_STRING, 0, "Trigger: double-press Ctrl")
 
@@ -170,6 +179,10 @@ class TrayIcon:
         if cmd == ID_ENABLE:
             cfg = self._app.config_mgr.config
             self._app.on_config_changed("enabled", not cfg.enabled)
+        elif cmd == ID_OPEN_PANEL:
+            self._app.show_control_panel()
+        elif cmd == ID_STARTUP:
+            self._app.on_startup_toggle()
         elif cmd == ID_TOK_O200K:
             self._app.on_config_changed("tokenizer", "o200k_base")
         elif cmd == ID_TOK_CL100K:

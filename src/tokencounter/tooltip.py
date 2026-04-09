@@ -25,7 +25,7 @@ from tokencounter.constants import (
     WS_EX_TOPMOST,
     WS_POPUP,
 )
-from tokencounter.utils import clamp_tooltip_position
+from tokencounter.utils import clamp_tooltip_position, get_screen_rect
 
 if TYPE_CHECKING:
     from tokencounter.config import ConfigManager
@@ -57,6 +57,39 @@ WM_MOUSELEAVE = 0x02A3
 
 TIMER_FADE = 1
 TIMER_CHECK_QUEUE = 2
+TIMER_STARTUP_ANIM = 3
+
+STARTUP_ANIMATION_STEPS = 10
+STARTUP_ANIMATION_INTERVAL_MS = 16
+STARTUP_ANIMATION_OFFSET_Y = 18
+STARTUP_HOLD_MS = 900
+
+
+def _lerp(start: int, end: int, progress: float) -> int:
+    return round(start + (end - start) * progress)
+
+
+def get_startup_banner_position(
+    width: int,
+    height: int,
+    *,
+    progress: float,
+    offset_y: int = STARTUP_ANIMATION_OFFSET_Y,
+) -> tuple[int, int, int]:
+    """Return centered startup banner position and alpha for animation progress."""
+
+    left, top, right, bottom = get_screen_rect()
+    target_x = left + max(0, (right - left - width) // 2)
+    target_y = top + max(0, (bottom - top - height) // 2)
+    start_y = target_y + offset_y
+
+    clamped = max(0.0, min(progress, 1.0))
+    eased = 1.0 - (1.0 - clamped) ** 3
+
+    x = target_x
+    y = _lerp(start_y, target_y, eased)
+    alpha = _lerp(0, 255, eased)
+    return x, y, alpha
 
 
 def _rgb(r: int, g: int, b: int) -> int:
@@ -88,6 +121,7 @@ class TooltipWindow:
         self._font_label = None
         self._font_small = None
         self._wnd_proc_ref = None
+        self._startup_anim_step = 0
 
     def show(
         self,
@@ -103,6 +137,13 @@ class TooltipWindow:
             "tokenizer_name": tokenizer_name,
             "mouse_x": mouse_x,
             "mouse_y": mouse_y,
+        })
+
+    def show_startup(self) -> None:
+        self._queue.put({
+            "kind": "startup",
+            "title": "TokenCounter",
+            "message": "Running in system tray",
         })
 
     def stop(self) -> None:
@@ -158,6 +199,8 @@ class TooltipWindow:
             if msg == WM_TIMER:
                 if wparam == TIMER_FADE:
                     self._on_fade_tick()
+                elif wparam == TIMER_STARTUP_ANIM:
+                    self._on_startup_anim_tick()
                 elif wparam == TIMER_CHECK_QUEUE:
                     self._check_queue()
                 return 0
@@ -290,6 +333,11 @@ class TooltipWindow:
 
         gdi32.SetBkMode(hdc, TRANSPARENT)
 
+        if data.get("kind") == "startup":
+            self._paint_startup(hdc, data)
+            user32.EndPaint(hwnd, ctypes.byref(ps))
+            return
+
         # Row 1: Token count (large, teal)
         old_font = gdi32.SelectObject(hdc, self._font_main)
         gdi32.SetTextColor(hdc, COLOR_TOKEN_NUM)
@@ -339,6 +387,10 @@ class TooltipWindow:
             ctypes.windll.user32.PostQuitMessage(0)
             return
 
+        if data.get("kind") == "startup":
+            self._display_startup(data)
+            return
+
         self._display(data)
 
     def _display(self, data: dict) -> None:
@@ -351,24 +403,7 @@ class TooltipWindow:
             TOOLTIP_OFFSET_X, TOOLTIP_OFFSET_Y,
         )
 
-        # Declare argtypes so 64-bit HWND params don't shift x/y arguments
-        HWND = ctypes.wintypes.HWND
-        user32.SetWindowPos.argtypes = [
-            HWND, HWND,
-            ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
-            ctypes.c_uint,
-        ]
-        user32.SetWindowPos.restype = ctypes.wintypes.BOOL
-
-        HWND_TOPMOST = HWND(-1)
-        SWP_NOACTIVATE = 0x0010
-        SWP_SHOWWINDOW = 0x0040
-
-        user32.SetWindowPos(
-            self._hwnd, HWND_TOPMOST,
-            x, y, TOOLTIP_WIDTH, TOOLTIP_HEIGHT,
-            SWP_NOACTIVATE | SWP_SHOWWINDOW,
-        )
+        self._set_window_pos(x, y)
 
         self._fade_alpha = 255
         user32.SetLayeredWindowAttributes(self._hwnd, 0, 255, LWA_ALPHA)
@@ -381,6 +416,21 @@ class TooltipWindow:
             display_s = self._config_mgr.config.tooltip_display_s
         display_ms = int(display_s * 1000)
         user32.SetTimer(self._hwnd, TIMER_FADE, display_ms, None)
+
+    def _display_startup(self, data: dict) -> None:
+        user32 = ctypes.windll.user32
+        self._current_data = data
+        self._startup_anim_step = 0
+        user32.KillTimer(self._hwnd, TIMER_FADE)
+        user32.KillTimer(self._hwnd, TIMER_STARTUP_ANIM)
+
+        x, y, alpha = get_startup_banner_position(TOOLTIP_WIDTH, TOOLTIP_HEIGHT, progress=0.0)
+        self._fade_alpha = alpha
+        self._set_window_pos(x, y)
+        user32.SetLayeredWindowAttributes(self._hwnd, 0, alpha, LWA_ALPHA)
+        user32.ShowWindow(self._hwnd, SW_SHOWNOACTIVATE)
+        user32.InvalidateRect(self._hwnd, None, True)
+        user32.SetTimer(self._hwnd, TIMER_STARTUP_ANIM, STARTUP_ANIMATION_INTERVAL_MS, None)
 
     def _on_fade_tick(self) -> None:
         user32 = ctypes.windll.user32
@@ -405,6 +455,59 @@ class TooltipWindow:
             self._fade_alpha = 255
         else:
             user32.SetLayeredWindowAttributes(self._hwnd, 0, self._fade_alpha, LWA_ALPHA)
+
+    def _on_startup_anim_tick(self) -> None:
+        user32 = ctypes.windll.user32
+
+        self._startup_anim_step += 1
+        progress = self._startup_anim_step / STARTUP_ANIMATION_STEPS
+        x, y, alpha = get_startup_banner_position(
+            TOOLTIP_WIDTH,
+            TOOLTIP_HEIGHT,
+            progress=progress,
+        )
+        self._fade_alpha = alpha
+        self._set_window_pos(x, y)
+        user32.SetLayeredWindowAttributes(self._hwnd, 0, alpha, LWA_ALPHA)
+        user32.InvalidateRect(self._hwnd, None, True)
+
+        if self._startup_anim_step >= STARTUP_ANIMATION_STEPS:
+            self._fade_alpha = 255
+            user32.KillTimer(self._hwnd, TIMER_STARTUP_ANIM)
+            user32.SetLayeredWindowAttributes(self._hwnd, 0, 255, LWA_ALPHA)
+            user32.SetTimer(self._hwnd, TIMER_FADE, STARTUP_HOLD_MS, None)
+
+    def _paint_startup(self, hdc: int, data: dict) -> None:
+        gdi32 = ctypes.windll.gdi32
+        user32 = ctypes.windll.user32
+
+        old_font = gdi32.SelectObject(hdc, self._font_main)
+        gdi32.SetTextColor(hdc, COLOR_TEXT)
+        title_rect = ctypes.wintypes.RECT(16, 10, TOOLTIP_WIDTH - 16, 32)
+        user32.DrawTextW(hdc, data["title"], -1, ctypes.byref(title_rect), DT_CENTER | DT_SINGLELINE)
+
+        gdi32.SelectObject(hdc, self._font_label)
+        gdi32.SetTextColor(hdc, COLOR_LABEL)
+        message_rect = ctypes.wintypes.RECT(16, 36, TOOLTIP_WIDTH - 16, 54)
+        user32.DrawTextW(hdc, data["message"], -1, ctypes.byref(message_rect), DT_CENTER | DT_SINGLELINE)
+        gdi32.SelectObject(hdc, old_font)
+
+    def _set_window_pos(self, x: int, y: int) -> None:
+        user32 = ctypes.windll.user32
+
+        HWND = ctypes.wintypes.HWND
+        user32.SetWindowPos.argtypes = [
+            HWND, HWND,
+            ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+            ctypes.c_uint,
+        ]
+        user32.SetWindowPos.restype = ctypes.wintypes.BOOL
+
+        user32.SetWindowPos(
+            self._hwnd, HWND(-1),
+            x, y, TOOLTIP_WIDTH, TOOLTIP_HEIGHT,
+            0x0010 | 0x0040,
+        )
 
     def _cleanup(self) -> None:
         gdi32 = ctypes.windll.gdi32

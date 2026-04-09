@@ -11,11 +11,13 @@ import threading
 import time
 
 from tokencounter.config import ConfigManager
+from tokencounter.control_panel import ControlPanel, PanelState, build_panel_state
 from tokencounter.constants import (
     DEDUP_WINDOW_S,
     WM_APP_RESULT_READY,
     WM_APP_TRAY_CALLBACK,
 )
+from tokencounter.startup import StartupManager
 from tokencounter.tokenizer_adapter import TokenizerRegistry
 
 logger = logging.getLogger("tokencounter")
@@ -26,6 +28,7 @@ class App:
 
     def __init__(self) -> None:
         self.config_mgr = ConfigManager()
+        self.startup_mgr = StartupManager()
 
         self.registry = TokenizerRegistry()
         cfg = self.config_mgr.config
@@ -46,6 +49,7 @@ class App:
         self._tooltip = None
         self._hooks = None
         self._acquirer = None
+        self._control_panel: ControlPanel | None = None
         self._worker_thread: threading.Thread | None = None
         self._tooltip_thread: threading.Thread | None = None
 
@@ -73,8 +77,21 @@ class App:
         )
         self._tooltip_thread.start()
 
+        self._control_panel = ControlPanel(
+            state_provider=self._build_control_panel_state,
+            on_enabled_changed=lambda enabled: self.on_config_changed("enabled", enabled),
+            on_startup_changed=self.on_startup_changed,
+            on_tokenizer_changed=lambda tokenizer: self.on_config_changed("tokenizer", tokenizer),
+            on_tooltip_duration_changed=lambda duration: self.on_config_changed("tooltip_display_s", duration),
+            on_blacklist_changed=self.on_blacklist_changed,
+            on_clipboard_calculate=self.on_clipboard_calculate,
+            on_exit=self.shutdown,
+        )
+        self._control_panel.start()
+
         self._tray.create()
         self._hooks.install()
+        self._tooltip.show_startup()
         logger.info("All subsystems started, entering message pump")
 
         self._message_pump()
@@ -87,6 +104,10 @@ class App:
 
         if self._tray:
             self._tray.destroy()
+
+        if self._control_panel:
+            self._control_panel.stop()
+            self._control_panel = None
 
         if self._tooltip:
             self._tooltip.stop()
@@ -146,6 +167,55 @@ class App:
                 logger.warning("Unknown tokenizer: %s", value)
 
         logger.info("Config changed: %s = %r", key, value)
+        self._refresh_control_panel()
+
+    def on_blacklist_changed(self, blacklist: list[str]) -> None:
+        self.config_mgr.update(blacklist=blacklist)
+        logger.info("Config changed: blacklist = %r", blacklist)
+        self._refresh_control_panel()
+
+    def on_startup_toggle(self) -> None:
+        try:
+            enabled = not self.startup_mgr.is_enabled()
+            self.on_startup_changed(enabled, show_feedback=True)
+        except Exception:
+            return
+
+    def on_startup_changed(self, enabled: bool, show_feedback: bool = False) -> None:
+        try:
+            self.startup_mgr.set_enabled(enabled)
+        except Exception:
+            logger.exception("Failed to update startup registration")
+            if show_feedback and self._tray:
+                self._tray.show_balloon("TokenCounter", "Failed to update launch at startup.")
+            self._refresh_control_panel()
+            raise
+
+        if show_feedback and self._tray:
+            message = "Launch at startup enabled." if enabled else "Launch at startup disabled."
+            self._tray.show_balloon("TokenCounter", message)
+        self._refresh_control_panel()
+
+    def show_control_panel(self) -> None:
+        if self._control_panel:
+            self._control_panel.show()
+
+    def _refresh_control_panel(self) -> None:
+        if self._control_panel:
+            self._control_panel.refresh()
+
+    def _build_control_panel_state(self) -> PanelState:
+        startup_enabled = False
+        try:
+            startup_enabled = self.startup_mgr.is_enabled()
+        except Exception:
+            logger.exception("Failed to read startup registration state for control panel")
+
+        return build_panel_state(
+            self.config_mgr.config,
+            startup_enabled=startup_enabled,
+            providers=self.registry.providers,
+        )
 
     def _worker_loop(self) -> None:
         logger.debug("Worker thread started")
