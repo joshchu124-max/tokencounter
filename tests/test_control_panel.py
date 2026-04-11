@@ -6,8 +6,12 @@ from tokencounter.config import Config
 from tokencounter.control_panel import (
     PanelState,
     build_panel_state,
+    build_tokenizer_display_map,
+    duration_to_choice,
+    format_duration_label,
     get_system_theme,
     normalize_blacklist,
+    toggle_advanced,
 )
 
 
@@ -87,3 +91,34 @@ class TestBuildPanelState:
         ]
         assert state.tooltip_display_s == 3.5
         assert state.blacklist_text == "Code.exe\nnotepad.exe"
+
+
+class TestDisplayDurationHelpers:
+    def test_maps_existing_duration_to_nearest_choice(self):
+        assert duration_to_choice(1.0) == 1.0
+        assert duration_to_choice(2.4) == 2.0
+        assert duration_to_choice(3.5) == 3.0
+        assert duration_to_choice(4.8) == 5.0
+
+    def test_formats_duration_label(self):
+        assert format_duration_label(1.0) == "1 Second"
+        assert format_duration_label(2.0) == "2 Seconds"
+
+
+class TestTokenizerDisplayHelpers:
+    def test_builds_encoding_to_label_map(self):
+        options = [
+            ("o200k_base", "GPT-4o (o200k_base)"),
+            ("cl100k_base", "GPT-4 (cl100k_base)"),
+        ]
+
+        assert build_tokenizer_display_map(options) == {
+            "o200k_base": "GPT-4o (o200k_base)",
+            "cl100k_base": "GPT-4 (cl100k_base)",
+        }
+
+
+class TestAdvancedStateHelper:
+    def test_toggles_expanded_state(self):
+        assert toggle_advanced(False) is True
+        assert toggle_advanced(True) is False

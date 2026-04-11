@@ -11,6 +11,8 @@ build/
 .pytest_cache/
 .venv/
 venv/
+dist-smoke/
+build-smoke/
 
 
 # IDE

@@ -14,6 +14,7 @@ from tokencounter.config import ConfigManager
 from tokencounter.control_panel import ControlPanel, PanelState, build_panel_state
 from tokencounter.constants import (
     DEDUP_WINDOW_S,
+    WM_APP_REQUEST_SHUTDOWN,
     WM_APP_RESULT_READY,
     WM_APP_TRAY_CALLBACK,
 )
@@ -52,6 +53,7 @@ class App:
         self._control_panel: ControlPanel | None = None
         self._worker_thread: threading.Thread | None = None
         self._tooltip_thread: threading.Thread | None = None
+        self._is_shutting_down = False
 
     def run(self) -> None:
         from tokencounter.acquisition import TextAcquirer
@@ -85,7 +87,7 @@ class App:
             on_tooltip_duration_changed=lambda duration: self.on_config_changed("tooltip_display_s", duration),
             on_blacklist_changed=self.on_blacklist_changed,
             on_clipboard_calculate=self.on_clipboard_calculate,
-            on_exit=self.shutdown,
+            on_exit=self.request_shutdown,
         )
         self._control_panel.start()
 
@@ -97,6 +99,9 @@ class App:
         self._message_pump()
 
     def shutdown(self) -> None:
+        if self._is_shutting_down:
+            return
+        self._is_shutting_down = True
         logger.info("Shutting down")
 
         if self._hooks:
@@ -118,6 +123,21 @@ class App:
             ctypes.windll.user32.PostQuitMessage(0)
         except (AttributeError, OSError):
             pass
+
+    def request_shutdown(self) -> None:
+        if self._main_hwnd:
+            try:
+                ctypes.windll.user32.PostMessageW(
+                    self._main_hwnd,
+                    WM_APP_REQUEST_SHUTDOWN,
+                    0,
+                    0,
+                )
+                return
+            except (AttributeError, OSError):
+                logger.exception("Failed to post shutdown request to main thread")
+
+        self.shutdown()
 
     def on_trigger(self, mouse_x: int, mouse_y: int) -> None:
         cfg = self.config_mgr.config
@@ -318,6 +338,9 @@ class App:
         def wnd_proc(hwnd, msg, wparam, lparam):
             if msg == WM_APP_RESULT_READY:
                 self._on_result_ready()
+                return 0
+            if msg == WM_APP_REQUEST_SHUTDOWN:
+                self.shutdown()
                 return 0
             if msg == WM_APP_TRAY_CALLBACK:
                 if self._tray:

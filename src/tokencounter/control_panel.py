@@ -15,11 +15,64 @@ from tokencounter.utils import get_screen_rect
 
 logger = logging.getLogger("tokencounter")
 
-PANEL_WIDTH = 560
-PANEL_HEIGHT = 520
+WINDOW_WIDTH = 1080
+WINDOW_HEIGHT = 800
+PANEL_MARGIN_X = 8
+PANEL_MARGIN_Y = 8
+PANEL_RADIUS = 44
+PANEL_CONTENT_INSET = 12
+PANEL_PADDING_X = 26
+PANEL_PADDING_Y = 18
 BLACKLIST_SAVE_DEBOUNCE_MS = 500
 THEME_REGISTRY_PATH = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
 THEME_REGISTRY_VALUE = "AppsUseLightTheme"
+SUPPORTED_DURATIONS = (1.0, 2.0, 3.0, 5.0)
+
+WINDOW_BG = "#010203"
+CHECK_GLYPH = "\u2713"
+RADIO_SELECTED_GLYPH = "\u25cf"
+RADIO_UNSELECTED_GLYPH = "\u25cb"
+CHEVRON_COLLAPSED = "\u25b8"
+CHEVRON_EXPANDED = "\u25be"
+RADIO_UNSELECTED_ICON_DATA = (
+    "iVBORw0KGgoAAAANSUhEUgAAABIAAAASCAYAAABWzo5XAAAAAXNSR0IArs4c6QAAAARnQU1BAACx"
+    "jwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAEqSURBVDhP1VMhUEMxDJ1ETiInkUjkJHISiUQikX"
+    "OTk8hJJHJychKJRCLbJmm+LPf62x3NVnbcYXh3/3aXl7y8Jtlk8m/gnJsyD/PAcUkUX8rvwrlhZnO7"
+    "yAKkn8Sa7BcoDiHER1tzBE/yVIqcp/jgRK4RJ6Irz3oXWN+zIOtrSunC1mfASRHZi8il5QEUM+vzKB"
+    "aXls8zKc9xPZEKiBHpG55ZHR+AQeYuQe4booMQ4s1JV8zDCsRvtgL3mJUNbmG1CZ4BZkkcP9qg6Hp0"
+    "5KYN8QMgArEmiFVDyHu5bYgO0DBvWHTdELiTTJDuGqKDegJYkuUOAz/ahAFcl3vbWi6j3kdNsvc0Hu"
+    "PY7Oy9lbdvSnLKAyXdfWtwskkXsF/msC+zg9AG/zeb+6f4AsLgeWvrB+2iAAAAAElFTkSuQmCC"
+)
+RADIO_SELECTED_ICON_DATA = (
+    "iVBORw0KGgoAAAANSUhEUgAAABIAAAASCAYAAABWzo5XAAAAAXNSR0IArs4c6QAAAARnQU1BAACx"
+    "jwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADKSURBVDhP5ZI9DoJAFIQpLS09AqWlpUfwCJaWlp"
+    "Z2HoHSY3AEj2K5vJ9dyjVvE8wyLITSxC+ZipnJg6Gq/hdmrkX6o1Pd47NVEOmZJTiWEAcR+75jvaF3"
+    "FpbQ5gUFvWKMG8yN6NhfCsGJRPoHZkfY+Riak6ruMJ+wD4rmRbE/YUdi7WsNIvF37EjYzGheki2LHQ"
+    "lbAs2LYq6x44tIaCaBslrMjrCriMO7EMzlZhfLcc5tWcKzUJAuWVWSY7+DLWnrEPkrkT+g53f5AOCy"
+    "43JGNlpkAAAAAElFTkSuQmCC"
+)
+
+PALETTE = {
+    "window_bg": WINDOW_BG,
+    "panel_bg": "#2b2d33",
+    "panel_border": "#2b2d33",
+    "divider": "#6d6f77",
+    "text": "#f4f5f8",
+    "muted": "#d5d7de",
+    "subtle": "#a8abb4",
+    "radio_on": "#111317",
+    "radio_off": "#f2f3f6",
+    "primary": "#57a7ff",
+    "primary_hover": "#75b8ff",
+    "primary_border": "#9accff",
+    "primary_text": "#f6fbff",
+    "secondary": "#3d3f47",
+    "secondary_hover": "#4b4e58",
+    "secondary_border": "#636670",
+    "secondary_text": "#f2f3f6",
+    "text_bg": "#24262b",
+    "text_border": "#4e5159",
+}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -35,33 +88,6 @@ class PanelState:
     tokenizer_options: list[tuple[str, str]]
     tooltip_display_s: float
     blacklist_text: str
-
-
-LIGHT_THEME = {
-    "bg": "#f5f7fb",
-    "card": "#ffffff",
-    "border": "#d8dee9",
-    "text": "#172033",
-    "muted": "#697386",
-    "accent": "#1868db",
-    "accent_hover": "#165fc7",
-    "button_text": "#ffffff",
-    "input_bg": "#ffffff",
-    "input_fg": "#172033",
-}
-
-DARK_THEME = {
-    "bg": "#11161f",
-    "card": "#171d28",
-    "border": "#273246",
-    "text": "#edf2ff",
-    "muted": "#95a1b3",
-    "accent": "#5ea1ff",
-    "accent_hover": "#7cb3ff",
-    "button_text": "#08111f",
-    "input_bg": "#0f141d",
-    "input_fg": "#edf2ff",
-}
 
 
 def normalize_blacklist(value: str | list[str]) -> list[str]:
@@ -108,6 +134,26 @@ def get_system_theme(*, registry: Any | None = None) -> str:
     return "light" if bool(value) else "dark"
 
 
+def duration_to_choice(value: float) -> float:
+    """Map any stored duration value to the nearest supported radio option."""
+
+    return min(SUPPORTED_DURATIONS, key=lambda candidate: (abs(candidate - value), candidate))
+
+
+def format_duration_label(value: float) -> str:
+    whole = int(value)
+    unit = "Second" if whole == 1 else "Seconds"
+    return f"{whole} {unit}"
+
+
+def build_tokenizer_display_map(options: list[tuple[str, str]]) -> dict[str, str]:
+    return {encoding_name: label for encoding_name, label in options}
+
+
+def toggle_advanced(is_expanded: bool) -> bool:
+    return not is_expanded
+
+
 def build_panel_state(
     config: Config,
     *,
@@ -139,6 +185,23 @@ def build_panel_state(
     )
 
 
+def _rounded_polygon_points(x1: float, y1: float, x2: float, y2: float, r: float) -> list[float]:
+    return [
+        x1 + r, y1,
+        x2 - r, y1,
+        x2, y1,
+        x2, y1 + r,
+        x2, y2 - r,
+        x2, y2,
+        x2 - r, y2,
+        x1 + r, y2,
+        x1, y2,
+        x1, y2 - r,
+        x1, y1 + r,
+        x1, y1,
+    ]
+
+
 class ControlPanel:
     """Single-instance Tkinter control panel running on its own UI thread."""
 
@@ -168,33 +231,44 @@ class ControlPanel:
         self._ready = threading.Event()
 
         self._tk = None
-        self._ttk = None
         self._root = None
-        self._style = None
         self._window_built = False
-        self._theme_name = "light"
+        self._advanced_expanded = False
 
-        self._enabled_var = None
-        self._startup_var = None
-        self._tokenizer_var = None
-        self._tooltip_var = None
-        self._status_var = None
-        self._version_var = None
-        self._subtitle_var = None
-        self._trigger_var = None
-        self._tooltip_value_var = None
+        self._current_state: PanelState | None = None
+        self._selected_tokenizer = ""
+        self._selected_duration = 2.0
+        self._enabled = False
+        self._startup_enabled = False
+        self._blacklist_dirty = False
 
-        self._title_label = None
-        self._tokenizer_combo = None
-        self._tooltip_scale = None
+        self._shell_canvas = None
+        self._panel_frame = None
+        self._scroll_canvas = None
+        self._scroll_window = None
+        self._scroll_frame = None
+        self._advanced_toggle = None
+        self._advanced_chevron = None
+        self._advanced_content = None
         self._blacklist_text = None
+        self._status_label = None
+        self._trigger_label = None
+        self._version_label = None
+        self._tokenizer_section = None
+        self._enabled_indicator = None
+        self._enabled_label = None
+        self._startup_indicator = None
+        self._startup_label = None
+        self._tokenizer_rows: dict[str, tuple[Any, Any, Any]] = {}
+        self._duration_rows: dict[float, tuple[Any, Any, Any]] = {}
+        self._tokenizer_display_map: dict[str, str] = {}
+        self._radio_icon_unselected = None
+        self._radio_icon_selected = None
 
-        self._tokenizer_display_to_encoding: dict[str, str] = {}
         self._blacklist_after_id = None
         self._fade_after_id = None
-        self._updating_ui = False
-        self._blacklist_dirty = False
-        self._last_tooltip_value = 2.0
+        self._drag_pointer_origin: tuple[int, int] | None = None
+        self._drag_window_origin: tuple[int, int] | None = None
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -229,24 +303,23 @@ class ControlPanel:
 
     def _ui_thread_main(self) -> None:
         import tkinter as tk
-        from tkinter import ttk
 
         self._tk = tk
-        self._ttk = ttk
         root = tk.Tk()
         root.withdraw()
-        root.title(f"{__app_name__} Control Panel")
+        root.overrideredirect(True)
         root.resizable(False, False)
-        root.geometry(f"{PANEL_WIDTH}x{PANEL_HEIGHT}")
+        root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
+        root.configure(bg=PALETTE["window_bg"])
+        try:
+            root.wm_attributes("-transparentcolor", PALETTE["window_bg"])
+        except tk.TclError:
+            root.configure(bg=PALETTE["panel_bg"])
         root.protocol("WM_DELETE_WINDOW", self._on_window_close)
+        root.bind("<Escape>", lambda _event: self._hide_window())
+        root.bind_all("<MouseWheel>", self._handle_mousewheel, add="+")
 
         self._root = root
-        self._style = ttk.Style(root)
-        try:
-            self._style.theme_use("clam")
-        except tk.TclError:
-            pass
-
         root.after(50, self._process_commands)
         self._ready.set()
 
@@ -285,12 +358,12 @@ class ControlPanel:
             return
 
         self._ensure_window()
-        self._apply_theme(get_system_theme())
         self._apply_state(self._state_provider())
         self._center_window()
         root.deiconify()
         root.lift()
         root.attributes("-alpha", 0.0)
+        self._raise_to_front()
         self._start_fade_in()
         try:
             root.focus_force()
@@ -321,335 +394,588 @@ class ControlPanel:
         self._cancel_blacklist_debounce()
         self._cancel_fade_in()
         try:
+            root.unbind_all("<MouseWheel>")
+        except self._tk.TclError:
+            pass
+        try:
             root.destroy()
         except self._tk.TclError:
             pass
 
     def _reset_ui_references(self) -> None:
+        self._tk = None
         self._root = None
-        self._style = None
         self._window_built = False
-        self._enabled_var = None
-        self._startup_var = None
-        self._tokenizer_var = None
-        self._tooltip_var = None
-        self._status_var = None
-        self._version_var = None
-        self._subtitle_var = None
-        self._trigger_var = None
-        self._tooltip_value_var = None
-        self._title_label = None
-        self._tokenizer_combo = None
-        self._tooltip_scale = None
+        self._advanced_expanded = False
+        self._current_state = None
+        self._selected_tokenizer = ""
+        self._selected_duration = 2.0
+        self._enabled = False
+        self._startup_enabled = False
+        self._blacklist_dirty = False
+        self._shell_canvas = None
+        self._panel_frame = None
+        self._scroll_canvas = None
+        self._scroll_window = None
+        self._scroll_frame = None
+        self._advanced_toggle = None
+        self._advanced_chevron = None
+        self._advanced_content = None
         self._blacklist_text = None
-        self._tokenizer_display_to_encoding = {}
+        self._status_label = None
+        self._trigger_label = None
+        self._version_label = None
+        self._tokenizer_section = None
+        self._enabled_indicator = None
+        self._enabled_label = None
+        self._startup_indicator = None
+        self._startup_label = None
+        self._tokenizer_rows = {}
+        self._duration_rows = {}
+        self._tokenizer_display_map = {}
+        self._radio_icon_unselected = None
+        self._radio_icon_selected = None
         self._blacklist_after_id = None
         self._fade_after_id = None
-        self._updating_ui = False
-        self._blacklist_dirty = False
-        self._last_tooltip_value = 2.0
-        self._tk = None
-        self._ttk = None
+        self._drag_pointer_origin = None
+        self._drag_window_origin = None
 
     def _ensure_window(self) -> None:
         if self._window_built or self._root is None:
             return
 
         tk = self._tk
-        ttk = self._ttk
         root = self._root
+        canvas_bg = root.cget("bg")
 
-        self._enabled_var = tk.BooleanVar(root, False)
-        self._startup_var = tk.BooleanVar(root, False)
-        self._tokenizer_var = tk.StringVar(root, "")
-        self._tooltip_var = tk.DoubleVar(root, 2.0)
-        self._status_var = tk.StringVar(root, "")
-        self._version_var = tk.StringVar(root, "")
-        self._subtitle_var = tk.StringVar(root, "")
-        self._trigger_var = tk.StringVar(root, "")
-        self._tooltip_value_var = tk.StringVar(root, "2.0s")
+        self._shell_canvas = tk.Canvas(
+            root,
+            width=WINDOW_WIDTH,
+            height=WINDOW_HEIGHT,
+            bg=canvas_bg,
+            highlightthickness=0,
+            bd=0,
+        )
+        self._shell_canvas.pack(fill="both", expand=True)
+        self._shell_canvas.bind("<ButtonPress-1>", self._start_window_drag)
+        self._shell_canvas.bind("<B1-Motion>", self._perform_window_drag)
+        self._shell_canvas.bind("<ButtonRelease-1>", self._stop_window_drag)
+        self._draw_shell()
+        self._radio_icon_unselected = tk.PhotoImage(data=RADIO_UNSELECTED_ICON_DATA)
+        self._radio_icon_selected = tk.PhotoImage(data=RADIO_SELECTED_ICON_DATA)
 
-        container = ttk.Frame(root, style="Panel.TFrame", padding=20)
-        container.pack(fill="both", expand=True)
+        panel_x = PANEL_MARGIN_X + PANEL_CONTENT_INSET
+        panel_y = PANEL_MARGIN_Y + PANEL_CONTENT_INSET
+        panel_width = WINDOW_WIDTH - (panel_x * 2)
+        panel_height = WINDOW_HEIGHT - (panel_y * 2)
+        self._panel_frame = tk.Frame(self._shell_canvas, bg=PALETTE["panel_bg"], bd=0, highlightthickness=0)
+        self._shell_canvas.create_window(
+            panel_x,
+            panel_y,
+            anchor="nw",
+            width=panel_width,
+            height=panel_height,
+            window=self._panel_frame,
+        )
 
-        header = ttk.Frame(container, style="Panel.TFrame")
-        header.pack(fill="x", pady=(0, 16))
-        self._title_label = ttk.Label(header, text=__app_name__, style="HeaderTitle.TLabel")
-        self._title_label.pack(anchor="w")
-        ttk.Label(header, textvariable=self._subtitle_var, style="Subtitle.TLabel").pack(anchor="w", pady=(4, 0))
-        ttk.Label(header, textvariable=self._status_var, style="Status.TLabel").pack(anchor="w", pady=(10, 0))
-        ttk.Label(header, textvariable=self._version_var, style="Version.TLabel").pack(anchor="w", pady=(4, 0))
+        drag_strip = tk.Frame(self._panel_frame, bg=PALETTE["panel_bg"], height=6)
+        drag_strip.pack(fill="x", padx=PANEL_PADDING_X, pady=(6, 0))
+        drag_strip.pack_propagate(False)
+        drag_strip.bind("<ButtonPress-1>", self._start_window_drag)
+        drag_strip.bind("<B1-Motion>", self._perform_window_drag)
+        drag_strip.bind("<ButtonRelease-1>", self._stop_window_drag)
 
-        general_card = self._create_section(container, "General")
-        ttk.Checkbutton(
-            general_card,
-            text="Enabled",
-            variable=self._enabled_var,
-            command=self._handle_enabled_changed,
-            style="Panel.TCheckbutton",
-        ).pack(anchor="w")
-        ttk.Checkbutton(
-            general_card,
-            text="Launch at startup",
-            variable=self._startup_var,
+        top = tk.Frame(self._panel_frame, bg=PALETTE["panel_bg"])
+        top.pack(fill="x", padx=PANEL_PADDING_X, pady=(4, 0))
+        self._build_enabled_row(top)
+        self._trigger_label = tk.Label(
+            top,
+            text="Trigger: double-press Ctrl",
+            bg=PALETTE["panel_bg"],
+            fg=PALETTE["muted"],
+            font=("Segoe UI", 18),
+        )
+        self._trigger_label.pack(anchor="w", pady=(12, 0))
+        self._trigger_label.bind("<ButtonPress-1>", self._start_window_drag)
+        self._trigger_label.bind("<B1-Motion>", self._perform_window_drag)
+        self._trigger_label.bind("<ButtonRelease-1>", self._stop_window_drag)
+        self._status_label = tk.Label(
+            top,
+            text="",
+            bg=PALETTE["panel_bg"],
+            fg=PALETTE["subtle"],
+            font=("Segoe UI", 9),
+        )
+        self._status_label.pack(anchor="w", pady=(4, 0))
+        self._status_label.bind("<ButtonPress-1>", self._start_window_drag)
+        self._status_label.bind("<B1-Motion>", self._perform_window_drag)
+        self._status_label.bind("<ButtonRelease-1>", self._stop_window_drag)
+
+        self._divider(self._panel_frame).pack(fill="x", padx=PANEL_PADDING_X, pady=(16, 14))
+
+        scroll_host = tk.Frame(self._panel_frame, bg=PALETTE["panel_bg"])
+        scroll_host.pack(fill="both", expand=True, padx=PANEL_PADDING_X)
+
+        self._scroll_canvas = tk.Canvas(
+            scroll_host,
+            bg=PALETTE["panel_bg"],
+            highlightthickness=0,
+            bd=0,
+            yscrollincrement=18,
+        )
+        self._scroll_canvas.pack(fill="both", expand=True)
+        self._scroll_frame = tk.Frame(self._scroll_canvas, bg=PALETTE["panel_bg"])
+        self._scroll_window = self._scroll_canvas.create_window(0, 0, anchor="nw", window=self._scroll_frame)
+        self._scroll_canvas.bind("<Configure>", self._sync_scroll_width)
+        self._scroll_frame.bind("<Configure>", self._sync_scroll_region)
+
+        self._build_scroll_content()
+
+        action_frame = tk.Frame(self._panel_frame, bg=PALETTE["panel_bg"])
+        action_frame.pack(fill="x", padx=PANEL_PADDING_X, pady=(12, PANEL_PADDING_Y))
+
+        left_actions = tk.Frame(action_frame, bg=PALETTE["panel_bg"])
+        left_actions.pack(side="left")
+        right_actions = tk.Frame(action_frame, bg=PALETTE["panel_bg"])
+        right_actions.pack(side="right")
+
+        self._create_action_button(
+            left_actions,
+            text="Calculate from Clipboard",
+            width=392,
+            height=54,
+            fill=PALETTE["primary"],
+            hover_fill=PALETTE["primary_hover"],
+            text_color=PALETTE["primary_text"],
+            border=PALETTE["primary_border"],
+            command=self._handle_clipboard_calculate,
+        ).pack(side="left")
+        self._create_action_button(
+            right_actions,
+            text="Hide to Tray",
+            width=164,
+            height=54,
+            fill=PALETTE["secondary"],
+            hover_fill=PALETTE["secondary_hover"],
+            text_color=PALETTE["secondary_text"],
+            border=PALETTE["secondary_border"],
+            command=self._hide_window,
+        ).pack(side="left", padx=(0, 16))
+        self._create_action_button(
+            right_actions,
+            text="Exit",
+            width=138,
+            height=54,
+            fill=PALETTE["secondary"],
+            hover_fill=PALETTE["secondary_hover"],
+            text_color=PALETTE["secondary_text"],
+            border=PALETTE["secondary_border"],
+            command=self._handle_exit,
+        ).pack(side="left")
+
+        self._window_built = True
+        self._root.after_idle(self._sync_scroll_region)
+
+    def _draw_shell(self) -> None:
+        canvas = self._shell_canvas
+        if canvas is None:
+            return
+
+        canvas.delete("panel")
+        self._create_rounded_rect(
+            canvas,
+            PANEL_MARGIN_X,
+            PANEL_MARGIN_Y,
+            WINDOW_WIDTH - PANEL_MARGIN_X,
+            WINDOW_HEIGHT - PANEL_MARGIN_Y,
+            PANEL_RADIUS,
+            fill=PALETTE["panel_bg"],
+            outline="",
+            tags="panel",
+        )
+
+    def _build_scroll_content(self) -> None:
+        tk = self._tk
+        parent = self._scroll_frame
+
+        tokenizer_section = tk.Frame(parent, bg=PALETTE["panel_bg"])
+        tokenizer_section.pack(fill="x")
+        self._section_title(tokenizer_section, "Tokenizer").pack(anchor="w", pady=(0, 10))
+        self._tokenizer_section = tk.Frame(tokenizer_section, bg=PALETTE["panel_bg"])
+        self._tokenizer_section.pack(fill="x")
+
+        self._divider(parent).pack(fill="x", pady=(12, 12))
+
+        duration_section = tk.Frame(parent, bg=PALETTE["panel_bg"])
+        duration_section.pack(fill="x")
+        self._section_title(duration_section, "Display Duration").pack(anchor="w", pady=(0, 10))
+        for value in SUPPORTED_DURATIONS:
+            row = self._create_option_row(
+                duration_section,
+                label=format_duration_label(value),
+                command=lambda selected=value: self._handle_duration_selected(selected),
+                font_size=15,
+                indicator_size=20,
+            )
+            row[0].pack(anchor="w", fill="x", pady=(0, 4))
+            self._duration_rows[value] = row
+
+        self._divider(parent).pack(fill="x", pady=(10, 10))
+
+        advanced = tk.Frame(parent, bg=PALETTE["panel_bg"])
+        advanced.pack(fill="x", pady=(0, 6))
+        self._build_advanced_section(advanced)
+
+        bottom_pad = tk.Frame(parent, bg=PALETTE["panel_bg"], height=4)
+        bottom_pad.pack(fill="x")
+
+    def _build_enabled_row(self, parent: Any) -> None:
+        row = self._tk.Frame(parent, bg=PALETTE["panel_bg"], cursor="hand2")
+        row.pack(anchor="w")
+        self._enabled_indicator = self._tk.Label(
+            row,
+            text=CHECK_GLYPH,
+            bg=PALETTE["panel_bg"],
+            fg=PALETTE["text"],
+            font=("Segoe UI Symbol", 25, "bold"),
+            cursor="hand2",
+        )
+        self._enabled_indicator.pack(side="left")
+        self._enabled_label = self._tk.Label(
+            row,
+            text="Enable",
+            bg=PALETTE["panel_bg"],
+            fg=PALETTE["text"],
+            font=("Segoe UI", 22, "bold"),
+            cursor="hand2",
+        )
+        self._enabled_label.pack(side="left", padx=(10, 0))
+
+        for widget in (row, self._enabled_indicator, self._enabled_label):
+            widget.bind("<Button-1>", lambda _event: self._handle_enabled_changed())
+
+    def _build_advanced_section(self, parent: Any) -> None:
+        tk = self._tk
+
+        header = tk.Frame(parent, bg=PALETTE["panel_bg"], cursor="hand2")
+        header.pack(fill="x")
+        self._advanced_chevron = tk.Label(
+            header,
+            text=CHEVRON_COLLAPSED,
+            bg=PALETTE["panel_bg"],
+            fg=PALETTE["muted"],
+            font=("Segoe UI Symbol", 14, "bold"),
+            cursor="hand2",
+        )
+        self._advanced_chevron.pack(side="left")
+        self._advanced_toggle = tk.Label(
+            header,
+            text="Advanced",
+            bg=PALETTE["panel_bg"],
+            fg=PALETTE["muted"],
+            font=("Segoe UI", 12, "bold"),
+            cursor="hand2",
+        )
+        self._advanced_toggle.pack(side="left", padx=(8, 0))
+
+        for widget in (header, self._advanced_chevron, self._advanced_toggle):
+            widget.bind("<Button-1>", lambda _event: self._toggle_advanced())
+
+        self._advanced_content = tk.Frame(parent, bg=PALETTE["panel_bg"])
+        self._divider(self._advanced_content).pack(fill="x", pady=(12, 14))
+
+        startup_row = self._create_option_row(
+            self._advanced_content,
+            label="Launch at startup",
             command=self._handle_startup_changed,
-            style="Panel.TCheckbutton",
-        ).pack(anchor="w", pady=(10, 0))
-        ttk.Label(general_card, textvariable=self._trigger_var, style="Muted.TLabel").pack(anchor="w", pady=(12, 0))
-
-        tokenizer_card = self._create_section(container, "Tokenizer")
-        self._tokenizer_combo = ttk.Combobox(
-            tokenizer_card,
-            textvariable=self._tokenizer_var,
-            state="readonly",
-            style="Panel.TCombobox",
+            font_size=13,
+            indicator_size=18,
         )
-        self._tokenizer_combo.pack(fill="x")
-        self._tokenizer_combo.bind("<<ComboboxSelected>>", self._handle_tokenizer_changed)
+        startup_row[0].pack(anchor="w", fill="x", pady=(0, 14))
+        self._startup_indicator = startup_row[1]
+        self._startup_label = startup_row[2]
 
-        tooltip_card = self._create_section(container, "Tooltip")
-        tooltip_row = ttk.Frame(tooltip_card, style="Card.TFrame")
-        tooltip_row.pack(fill="x")
-        ttk.Label(tooltip_row, text="Display Duration", style="Body.TLabel").pack(side="left")
-        ttk.Label(tooltip_row, textvariable=self._tooltip_value_var, style="Value.TLabel").pack(side="right")
-        self._tooltip_scale = ttk.Scale(
-            tooltip_card,
-            orient="horizontal",
-            from_=1.0,
-            to=5.0,
-            variable=self._tooltip_var,
-            command=self._handle_tooltip_changed,
+        blacklist_label = tk.Label(
+            self._advanced_content,
+            text="Blacklist",
+            bg=PALETTE["panel_bg"],
+            fg=PALETTE["text"],
+            font=("Segoe UI", 13, "bold"),
         )
-        self._tooltip_scale.pack(fill="x", pady=(12, 0))
-
-        blacklist_card = self._create_section(container, "Blacklist")
-        blacklist_hint = ttk.Label(
-            blacklist_card,
+        blacklist_label.pack(anchor="w", pady=(0, 8))
+        blacklist_hint = tk.Label(
+            self._advanced_content,
             text="One process name per line, for example Code.exe",
-            style="Muted.TLabel",
+            bg=PALETTE["panel_bg"],
+            fg=PALETTE["subtle"],
+            font=("Segoe UI", 9),
         )
         blacklist_hint.pack(anchor="w", pady=(0, 8))
         self._blacklist_text = tk.Text(
-            blacklist_card,
-            height=7,
+            self._advanced_content,
+            height=4,
             wrap="none",
             relief="flat",
             undo=False,
             font=("Segoe UI", 10),
-            padx=10,
+            padx=12,
             pady=10,
+            bg=PALETTE["text_bg"],
+            fg=PALETTE["text"],
+            insertbackground=PALETTE["text"],
+            highlightthickness=1,
+            highlightbackground=PALETTE["text_border"],
+            highlightcolor=PALETTE["primary"],
+            selectbackground=PALETTE["primary"],
+            selectforeground=PALETTE["primary_text"],
         )
-        self._blacklist_text.pack(fill="both", expand=True)
+        self._blacklist_text.pack(fill="x")
         self._blacklist_text.bind("<<Modified>>", self._handle_blacklist_modified)
         self._blacklist_text.bind("<FocusOut>", self._handle_blacklist_focus_out)
+        self._blacklist_text.bind("<MouseWheel>", self._handle_mousewheel)
 
-        actions_card = self._create_section(container, "Actions")
-        actions_row = ttk.Frame(actions_card, style="Card.TFrame")
-        actions_row.pack(fill="x")
-        ttk.Button(
-            actions_row,
-            text="Calculate from Clipboard",
-            style="Primary.TButton",
-            command=self._handle_clipboard_calculate,
-        ).pack(side="left")
-        ttk.Button(
-            actions_row,
-            text="Hide to Tray",
-            style="Secondary.TButton",
-            command=self._hide_window,
-        ).pack(side="left", padx=(10, 0))
-        ttk.Button(
-            actions_row,
-            text="Exit",
-            style="Secondary.TButton",
-            command=self._handle_exit,
-        ).pack(side="right")
-
-        self._window_built = True
-
-    def _create_section(self, parent: Any, title: str) -> Any:
-        ttk = self._ttk
-        card = ttk.Frame(parent, style="Card.TFrame", padding=16)
-        card.pack(fill="x", pady=(0, 14))
-        ttk.Label(card, text=title, style="SectionTitle.TLabel").pack(anchor="w", pady=(0, 12))
-        return card
-
-    def _apply_theme(self, theme_name: str) -> None:
-        if self._root is None or self._style is None:
-            return
-
-        self._theme_name = theme_name if theme_name in ("light", "dark") else "light"
-        palette = LIGHT_THEME if self._theme_name == "light" else DARK_THEME
-        root = self._root
-        style = self._style
-
-        root.configure(bg=palette["bg"])
-        style.configure("Panel.TFrame", background=palette["bg"])
-        style.configure("Card.TFrame", background=palette["card"], borderwidth=1, relief="solid")
-        style.configure(
-            "HeaderTitle.TLabel",
-            background=palette["bg"],
-            foreground=palette["text"],
-            font=("Segoe UI", 22, "bold"),
-        )
-        style.configure(
-            "Subtitle.TLabel",
-            background=palette["bg"],
-            foreground=palette["muted"],
-            font=("Segoe UI", 10),
-        )
-        style.configure(
-            "Status.TLabel",
-            background=palette["bg"],
-            foreground=palette["accent"],
-            font=("Segoe UI", 11, "bold"),
-        )
-        style.configure(
-            "Version.TLabel",
-            background=palette["bg"],
-            foreground=palette["muted"],
+        self._version_label = tk.Label(
+            self._advanced_content,
+            text="",
+            bg=PALETTE["panel_bg"],
+            fg=PALETTE["subtle"],
             font=("Segoe UI", 9),
         )
-        style.configure(
-            "SectionTitle.TLabel",
-            background=palette["card"],
-            foreground=palette["text"],
-            font=("Segoe UI", 11, "bold"),
+        self._version_label.pack(anchor="w", pady=(12, 0))
+
+    def _create_option_row(
+        self,
+        parent: Any,
+        *,
+        label: str,
+        command: Callable[[], None],
+        font_size: int,
+        indicator_size: int,
+    ) -> tuple[Any, Any, Any]:
+        frame = self._tk.Frame(parent, bg=PALETTE["panel_bg"], cursor="hand2")
+        indicator = self._create_option_indicator(frame, indicator_size=indicator_size)
+        indicator.pack(side="left")
+        text = self._tk.Label(
+            frame,
+            text=label,
+            bg=PALETTE["panel_bg"],
+            fg=PALETTE["text"],
+            font=("Segoe UI", font_size),
+            cursor="hand2",
         )
-        style.configure(
-            "Body.TLabel",
-            background=palette["card"],
-            foreground=palette["text"],
-            font=("Segoe UI", 10),
+        text.pack(side="left", padx=(8, 0))
+
+        for widget in (frame, indicator, text):
+            widget.bind("<Button-1>", lambda _event, cb=command: cb())
+
+        return frame, indicator, text
+
+    def _create_option_indicator(self, parent: Any, *, indicator_size: int) -> Any:
+        indicator = self._tk.Label(
+            parent,
+            bg=PALETTE["panel_bg"],
+            cursor="hand2",
         )
-        style.configure(
-            "Muted.TLabel",
-            background=palette["card"],
-            foreground=palette["muted"],
-            font=("Segoe UI", 9),
+        self._draw_option_indicator(indicator, selected=False)
+        return indicator
+
+    def _draw_option_indicator(self, indicator: Any, *, selected: bool) -> None:
+        image = self._radio_icon_selected if selected else self._radio_icon_unselected
+        indicator.configure(image=image)
+        indicator.image = image
+
+    def _create_action_button(
+        self,
+        parent: Any,
+        *,
+        text: str,
+        width: int,
+        height: int,
+        fill: str,
+        hover_fill: str,
+        text_color: str,
+        border: str,
+        command: Callable[[], None],
+    ) -> Any:
+        canvas = self._tk.Canvas(
+            parent,
+            width=width,
+            height=height,
+            bg=PALETTE["panel_bg"],
+            highlightthickness=0,
+            bd=0,
+            cursor="hand2",
         )
-        style.configure(
-            "Value.TLabel",
-            background=palette["card"],
-            foreground=palette["text"],
-            font=("Segoe UI", 10, "bold"),
+        self._redraw_action_button(canvas, text, width, height, fill, text_color, border)
+
+        def on_enter(_event: object) -> None:
+            self._redraw_action_button(canvas, text, width, height, hover_fill, text_color, border)
+
+        def on_leave(_event: object) -> None:
+            self._redraw_action_button(canvas, text, width, height, fill, text_color, border)
+
+        canvas.bind("<Enter>", on_enter)
+        canvas.bind("<Leave>", on_leave)
+        canvas.bind("<Button-1>", lambda _event: command())
+        return canvas
+
+    def _redraw_action_button(
+        self,
+        canvas: Any,
+        text: str,
+        width: int,
+        height: int,
+        fill: str,
+        text_color: str,
+        border: str,
+    ) -> None:
+        canvas.delete("all")
+        self._create_rounded_rect(
+            canvas,
+            4,
+            4,
+            width - 4,
+            height - 4,
+            24,
+            fill=fill,
+            outline=border,
+            width=2,
         )
-        style.configure(
-            "Panel.TCheckbutton",
-            background=palette["card"],
-            foreground=palette["text"],
-            font=("Segoe UI", 10),
-        )
-        style.map(
-            "Panel.TCheckbutton",
-            background=[("active", palette["card"])],
-            foreground=[("active", palette["text"])],
-        )
-        style.configure(
-            "Panel.TCombobox",
-            fieldbackground=palette["input_bg"],
-            background=palette["input_bg"],
-            foreground=palette["input_fg"],
-            arrowcolor=palette["text"],
-            bordercolor=palette["border"],
-            lightcolor=palette["border"],
-            darkcolor=palette["border"],
-            selectbackground=palette["accent"],
-            selectforeground=palette["button_text"],
-        )
-        style.configure(
-            "Primary.TButton",
-            background=palette["accent"],
-            foreground=palette["button_text"],
-            bordercolor=palette["accent"],
-            focusthickness=0,
-            focuscolor=palette["accent"],
-            padding=(14, 8),
-            font=("Segoe UI", 10, "bold"),
-        )
-        style.map(
-            "Primary.TButton",
-            background=[("active", palette["accent_hover"])],
-            foreground=[("active", palette["button_text"])],
-        )
-        style.configure(
-            "Secondary.TButton",
-            background=palette["card"],
-            foreground=palette["text"],
-            bordercolor=palette["border"],
-            focusthickness=0,
-            focuscolor=palette["card"],
-            padding=(14, 8),
-            font=("Segoe UI", 10),
-        )
-        style.map(
-            "Secondary.TButton",
-            background=[("active", palette["bg"])],
-            foreground=[("active", palette["text"])],
+        canvas.create_text(
+            width // 2,
+            height // 2 + 1,
+            text=text,
+            fill=text_color,
+            font=("Segoe UI", 14, "bold"),
         )
 
-        if self._blacklist_text is not None:
-            self._blacklist_text.configure(
-                bg=palette["input_bg"],
-                fg=palette["input_fg"],
-                insertbackground=palette["input_fg"],
-                highlightthickness=1,
-                highlightbackground=palette["border"],
-                highlightcolor=palette["accent"],
-                selectbackground=palette["accent"],
-                selectforeground=palette["button_text"],
-            )
+    def _create_rounded_rect(
+        self,
+        canvas: Any,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        radius: float,
+        **kwargs: Any,
+    ) -> Any:
+        points = _rounded_polygon_points(x1, y1, x2, y2, radius)
+        return canvas.create_polygon(points, smooth=True, splinesteps=24, **kwargs)
+
+    def _section_title(self, parent: Any, title: str) -> Any:
+        return self._tk.Label(
+            parent,
+            text=title,
+            bg=PALETTE["panel_bg"],
+            fg=PALETTE["text"],
+            font=("Segoe UI", 18, "bold"),
+        )
+
+    def _divider(self, parent: Any) -> Any:
+        return self._tk.Frame(parent, bg=PALETTE["divider"], height=1)
 
     def _apply_state(self, state: PanelState) -> None:
         if not self._window_built:
             return
 
-        self._updating_ui = True
-        try:
-            self._title_label.configure(text=state.app_name)
-            self._subtitle_var.set(state.subtitle)
-            self._status_var.set(state.status_text)
-            self._version_var.set(f"v{state.version}")
-            self._trigger_var.set(state.trigger_text)
-            self._enabled_var.set(state.enabled)
-            self._startup_var.set(state.startup_enabled)
-            self._tooltip_var.set(state.tooltip_display_s)
-            self._tooltip_value_var.set(f"{state.tooltip_display_s:.1f}s")
-            self._last_tooltip_value = state.tooltip_display_s
+        self._current_state = state
+        self._enabled = state.enabled
+        self._startup_enabled = state.startup_enabled
+        self._selected_tokenizer = state.tokenizer
+        self._selected_duration = duration_to_choice(state.tooltip_display_s)
+        self._tokenizer_display_map = build_tokenizer_display_map(state.tokenizer_options)
 
-            display_values = [label for _, label in state.tokenizer_options]
-            self._tokenizer_display_to_encoding = {
-                label: encoding_name for encoding_name, label in state.tokenizer_options
-            }
-            self._tokenizer_combo.configure(values=display_values)
-            selected_label = next(
-                (label for encoding_name, label in state.tokenizer_options if encoding_name == state.tokenizer),
-                display_values[0] if display_values else "",
+        self._rebuild_tokenizer_rows(state.tokenizer_options)
+        self._enabled_indicator.configure(
+            text=CHECK_GLYPH if state.enabled else RADIO_UNSELECTED_GLYPH,
+            fg=PALETTE["text"] if state.enabled else PALETTE["radio_off"],
+        )
+        self._enabled_label.configure(text="Enable", fg=PALETTE["text"])
+        self._trigger_label.configure(text=state.trigger_text)
+        self._status_label.configure(text=state.status_text)
+        self._version_label.configure(text=f"{state.app_name}  v{state.version}")
+
+        self._refresh_option_group(self._tokenizer_rows, self._selected_tokenizer)
+        self._refresh_option_group(self._duration_rows, self._selected_duration)
+        self._refresh_startup_row()
+
+        if not self._blacklist_dirty:
+            current = self._blacklist_text.get("1.0", "end-1c")
+            if current != state.blacklist_text:
+                self._blacklist_text.delete("1.0", "end")
+                if state.blacklist_text:
+                    self._blacklist_text.insert("1.0", state.blacklist_text)
+                self._blacklist_text.edit_modified(False)
+
+        self._root.after_idle(self._sync_scroll_region)
+
+    def _refresh_option_group(self, rows: dict[Any, tuple[Any, Any, Any]], selected: Any) -> None:
+        for value, (frame, indicator, label) in rows.items():
+            is_selected = value == selected
+            self._draw_option_indicator(indicator, selected=is_selected)
+            label.configure(fg=PALETTE["text"] if is_selected else PALETTE["muted"])
+            frame.configure(bg=PALETTE["panel_bg"])
+
+    def _rebuild_tokenizer_rows(self, options: list[tuple[str, str]]) -> None:
+        if self._tokenizer_section is None:
+            return
+        existing = [(encoding, row[2].cget("text")) for encoding, row in self._tokenizer_rows.items()]
+        if existing == options:
+            return
+
+        for child in self._tokenizer_section.winfo_children():
+            child.destroy()
+        self._tokenizer_rows = {}
+
+        for encoding, label in options:
+            row = self._create_option_row(
+                self._tokenizer_section,
+                label=label,
+                command=lambda value=encoding: self._handle_tokenizer_selected(value),
+                font_size=16,
+                indicator_size=21,
             )
-            self._tokenizer_var.set(selected_label)
+            row[0].pack(anchor="w", fill="x", pady=(0, 6))
+            self._tokenizer_rows[encoding] = row
 
-            if not self._blacklist_dirty:
-                current = self._blacklist_text.get("1.0", "end-1c")
-                if current != state.blacklist_text:
-                    self._blacklist_text.delete("1.0", "end")
-                    if state.blacklist_text:
-                        self._blacklist_text.insert("1.0", state.blacklist_text)
-                    self._blacklist_text.edit_modified(False)
-        finally:
-            self._updating_ui = False
+    def _refresh_startup_row(self) -> None:
+        if self._startup_indicator is None or self._startup_label is None:
+            return
+        self._draw_option_indicator(self._startup_indicator, selected=self._startup_enabled)
+        self._startup_label.configure(fg=PALETTE["text"] if self._startup_enabled else PALETTE["muted"])
+
+    def _sync_scroll_width(self, _event: object = None) -> None:
+        if self._scroll_canvas is None or self._scroll_window is None:
+            return
+        width = max(1, self._scroll_canvas.winfo_width())
+        self._scroll_canvas.itemconfigure(self._scroll_window, width=width)
+        self._sync_scroll_region()
+
+    def _sync_scroll_region(self, _event: object = None) -> None:
+        if self._scroll_canvas is None:
+            return
+        self._scroll_canvas.configure(scrollregion=self._scroll_canvas.bbox("all"))
 
     def _center_window(self) -> None:
         if self._root is None:
             return
         left, top, right, bottom = get_screen_rect()
-        x = left + max(0, (right - left - PANEL_WIDTH) // 2)
-        y = top + max(0, (bottom - top - PANEL_HEIGHT) // 2)
-        self._root.geometry(f"{PANEL_WIDTH}x{PANEL_HEIGHT}+{x}+{y}")
+        x = left + max(0, (right - left - WINDOW_WIDTH) // 2)
+        y = top + max(0, (bottom - top - WINDOW_HEIGHT) // 2)
+        self._root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}+{x}+{y}")
+
+    def _raise_to_front(self) -> None:
+        if self._root is None:
+            return
+        try:
+            self._root.attributes("-topmost", True)
+            self._root.after(120, lambda: self._root and self._root.attributes("-topmost", False))
+        except self._tk.TclError:
+            return
 
     def _start_fade_in(self) -> None:
         if self._root is None:
             return
-
         self._cancel_fade_in()
         self._animate_fade_in(0)
 
@@ -675,46 +1001,91 @@ class ControlPanel:
             pass
         self._fade_after_id = None
 
-    def _handle_enabled_changed(self) -> None:
-        if self._updating_ui:
+    def _toggle_advanced(self) -> None:
+        self._advanced_expanded = toggle_advanced(self._advanced_expanded)
+        if self._advanced_expanded:
+            self._advanced_content.pack(fill="x", pady=(10, 0))
+            self._advanced_chevron.configure(text=CHEVRON_EXPANDED)
+        else:
+            self._advanced_content.pack_forget()
+            self._advanced_chevron.configure(text=CHEVRON_COLLAPSED)
+        self._root.after_idle(self._sync_scroll_region)
+
+    def _start_window_drag(self, event: Any) -> None:
+        if self._root is None:
             return
-        self._on_enabled_changed(bool(self._enabled_var.get()))
+        self._drag_pointer_origin = (event.x_root, event.y_root)
+        self._drag_window_origin = (self._root.winfo_x(), self._root.winfo_y())
+
+    def _perform_window_drag(self, event: Any) -> None:
+        if self._root is None or self._drag_pointer_origin is None or self._drag_window_origin is None:
+            return
+        delta_x = event.x_root - self._drag_pointer_origin[0]
+        delta_y = event.y_root - self._drag_pointer_origin[1]
+        next_x = self._drag_window_origin[0] + delta_x
+        next_y = self._drag_window_origin[1] + delta_y
+        self._root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}+{next_x}+{next_y}")
+
+    def _stop_window_drag(self, _event: Any = None) -> None:
+        self._drag_pointer_origin = None
+        self._drag_window_origin = None
+
+    def _handle_mousewheel(self, event: Any) -> str | None:
+        if self._root is None or self._scroll_canvas is None or not self._root.winfo_viewable():
+            return None
+
+        widget = getattr(event, "widget", None)
+        if widget is None:
+            return None
+
+        try:
+            if widget.winfo_toplevel() is not self._root:
+                return None
+        except self._tk.TclError:
+            return None
+
+        scroll_region = self._scroll_canvas.bbox("all")
+        if not scroll_region:
+            return "break"
+
+        content_height = scroll_region[3] - scroll_region[1]
+        visible_height = self._scroll_canvas.winfo_height()
+        if content_height <= visible_height:
+            return "break"
+
+        delta = getattr(event, "delta", 0)
+        if delta == 0:
+            return "break"
+
+        units = -1 * int(delta / 120) if abs(delta) >= 120 else (-1 if delta > 0 else 1)
+        self._scroll_canvas.yview_scroll(units, "units")
+        return "break"
+
+    def _handle_enabled_changed(self) -> None:
+        self._on_enabled_changed(not self._enabled)
         self.refresh()
 
     def _handle_startup_changed(self) -> None:
-        if self._updating_ui:
-            return
-        self._on_startup_changed(bool(self._startup_var.get()))
+        self._on_startup_changed(not self._startup_enabled)
         self.refresh()
 
-    def _handle_tokenizer_changed(self, _event: object = None) -> None:
-        if self._updating_ui:
+    def _handle_tokenizer_selected(self, encoding_name: str) -> None:
+        if encoding_name == self._selected_tokenizer:
             return
-        selected = self._tokenizer_display_to_encoding.get(self._tokenizer_var.get())
-        if not selected:
-            return
-        self._on_tokenizer_changed(selected)
+        self._selected_tokenizer = encoding_name
+        self._refresh_option_group(self._tokenizer_rows, self._selected_tokenizer)
+        self._on_tokenizer_changed(encoding_name)
         self.refresh()
 
-    def _handle_tooltip_changed(self, value: str) -> None:
-        if self._updating_ui:
+    def _handle_duration_selected(self, value: float) -> None:
+        if abs(value - self._selected_duration) < 0.001:
             return
-        snapped = max(1.0, min(5.0, round(float(value) * 2.0) / 2.0))
-        self._updating_ui = True
-        try:
-            self._tooltip_var.set(snapped)
-            self._tooltip_value_var.set(f"{snapped:.1f}s")
-        finally:
-            self._updating_ui = False
-
-        if abs(snapped - self._last_tooltip_value) < 0.001:
-            return
-
-        self._last_tooltip_value = snapped
-        self._on_tooltip_duration_changed(snapped)
+        self._selected_duration = value
+        self._refresh_option_group(self._duration_rows, self._selected_duration)
+        self._on_tooltip_duration_changed(value)
 
     def _handle_blacklist_modified(self, _event: object = None) -> None:
-        if self._updating_ui or self._blacklist_text is None:
+        if self._blacklist_text is None:
             return
         if not self._blacklist_text.edit_modified():
             return

@@ -7,6 +7,7 @@ from unittest import mock
 import pytest
 
 from tokencounter.config import Config
+from tokencounter.constants import WM_APP_REQUEST_SHUTDOWN
 
 
 class _FakeProvider:
@@ -93,3 +94,25 @@ class TestAppControlPanelIntegration:
         assert state.tokenizer == "cl100k_base"
         assert state.tooltip_display_s == 4.0
         assert state.blacklist_text == "Code.exe"
+
+    def test_request_shutdown_posts_message_to_main_thread(self, app_env, monkeypatch):
+        app = app_env
+        app._main_hwnd = 123
+
+        post_message = mock.Mock()
+        user32 = mock.Mock(PostMessageW=post_message)
+        windll = mock.Mock(user32=user32)
+        monkeypatch.setattr("tokencounter.app.ctypes.windll", windll)
+
+        app.request_shutdown()
+
+        post_message.assert_called_once()
+        assert post_message.call_args.args[:2] == (123, WM_APP_REQUEST_SHUTDOWN)
+
+    def test_request_shutdown_falls_back_to_direct_shutdown_without_message_window(self, app_env):
+        app = app_env
+        app.shutdown = mock.Mock()
+
+        app.request_shutdown()
+
+        app.shutdown.assert_called_once_with()
